@@ -1,0 +1,15 @@
+# Configuração local do Supabase (contém a URL e a anon key do projeto real)
+supabase-config.js
+
+# Segredos de Edge Functions
+supabase/functions/**/.env
+
+# Documentos com credenciais — nunca versionar
+Logins e senhas Oliveira e Camilo intranet.docx
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Configuração local do Claude Code
+.claude/

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal Corporativo Oliveira & Camilo</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- Biblioteca oficial do Supabase (roda no navegador, usa só a "anon key" pública) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- Arquivo de configuração separado: abra "supabase-config.js" no Bloco de Notas
+     e cole ali a URL e a anon key do seu projeto Supabase. Precisa estar na
+     MESMA PASTA que este arquivo HTML. Use supabase-config.example.js como modelo. -->
+<script src="supabase-config.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="portal">
+  <input type="file" id="logoFileInput" accept="image/*" style="display:none">
+  <input type="file" id="teamFileInput" accept="image/*" style="display:none">
+  <input type="file" id="cursoUploadInput" style="display:none">
+  <input type="file" id="bugAnexoInput" accept="image/*,video/*" multiple style="display:none">
+
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <div class="main">
+    <header class="header" id="header"></header>
+    <div class="content" id="content"></div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="adminRoot"></div>
+  <div id="toastRoot"></div>
+  <div id="loginRoot"></div>
+</div>
+
+<script src="js/icons.js"></script>
+<script src="js/data.js"></script>
+<script src="js/state.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/access-control.js"></script>
+<script src="js/cursos-helpers.js"></script>
+<script src="js/aniversarios.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/render-layout.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/calculadora.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/sinalizacoes.js"></script>
+<script src="js/reportar-erro.js"></script>
+<script src="js/metas-dashboard.js"></script>
+<script src="js/router.js"></script>
+<script src="js/bootstrap.js"></script>
+</body>
+</html>

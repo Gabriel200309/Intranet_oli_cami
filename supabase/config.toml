@@ -1,0 +1,39 @@
+project_id = "portal-oliveira-camilo"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_signup = false   # cadastro de funcionário é feito pelo admin, não auto-cadastro público
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+# "Esqueci minha senha" do portal usa o login por OTP/código nativo do
+# Supabase Auth (signInWithOtp) — não precisa de tabela/servidor próprios.
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "25MiB"
+
+[functions.analisar-erro-ia]
+verify_jwt = true
