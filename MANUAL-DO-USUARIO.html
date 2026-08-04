@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual do Portal — Oliveira &amp; Camilo</title>
+<style>
+  :root {
+    --bg: #F6F5F2; --surface: #FFFFFF; --surface-2: #FAF9F6; --border: #E6E2D8;
+    --text: #201F1D; --text-2: #5C584F; --text-3: #8C877A;
+    --navy: #262524; --navy-2: #363430;
+    --brass: #96721A; --brass-ink: #7A5C15; --brass-light: #E9CD82; --brass-soft: #F2E7C8;
+    --success: #2A8A61; --success-soft: #E4F2EB;
+    --danger: #A73F32; --danger-soft: #F7E6E3;
+    --shadow: 0 1px 2px rgba(32,31,29,.05), 0 10px 28px -14px rgba(32,31,29,.18);
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16151A; --surface: #1D1C22; --surface-2: #24232A; --border: #34323B;
+      --text: #EDEAE4; --text-2: #A9A69C; --text-3: #79766C;
+      --brass: #D9B25C; --brass-ink: #E9CD82; --brass-light: #E9CD82; --brass-soft: #332C1C;
+      --success: #57B98A; --success-soft: #16261F;
+      --danger: #E08776; --danger-soft: #2E1917;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16151A; --surface: #1D1C22; --surface-2: #24232A; --border: #34323B;
+    --text: #EDEAE4; --text-2: #A9A69C; --text-3: #79766C;
+    --brass: #D9B25C; --brass-ink: #E9CD82; --brass-light: #E9CD82; --brass-soft: #332C1C;
+    --success: #57B98A; --success-soft: #16261F;
+    --danger: #E08776; --danger-soft: #2E1917;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.6);
+  }
+  :root[data-theme="light"] {
+    --bg: #F6F5F2; --surface: #FFFFFF; --surface-2: #FAF9F6; --border: #E6E2D8;
+    --text: #201F1D; --text-2: #5C584F; --text-3: #8C877A;
+    --brass: #96721A; --brass-ink: #7A5C15; --brass-light: #E9CD82; --brass-soft: #F2E7C8;
+    --success: #2A8A61; --success-soft: #E4F2EB;
+    --danger: #A73F32; --danger-soft: #F7E6E3;
+    --shadow: 0 1px 2px rgba(32,31,29,.05), 0 10px 28px -14px rgba(32,31,29,.18);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans);
+    font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--brass-soft); color: var(--text); }
+  a { color: var(--brass-ink); }
+  a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; color: var(--text); }
+  p { max-width: 66ch; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--brass-ink);
+  }
+
+  /* ---------- shell: sidebar + content, echoing the portal's own layout ---------- */
+  .shell { display: flex; min-height: 100vh; align-items: flex-start; }
+
+  .toc {
+    width: 280px; flex-shrink: 0; position: sticky; top: 0; height: 100vh;
+    display: flex; flex-direction: column; background: var(--surface);
+    border-right: 1px solid var(--border); overflow: hidden;
+  }
+  .toc-brand {
+    display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid var(--border);
+  }
+  .toc-brand img { width: 30px; height: 30px; border-radius: 7px; display: block; }
+  .toc-brand-text { font-family: var(--serif); font-size: 14.5px; font-weight: 600; line-height: 1.25; }
+  .toc-brand-text small { display: block; font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); margin-top: 2px; }
+
+  .toc-search { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .toc-search input {
+    width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-family: var(--sans); outline: none;
+  }
+  .toc-search input:focus { border-color: var(--brass); }
+
+  .toc-list { flex: 1; overflow-y: auto; padding: 10px 10px 24px; }
+  .toc-group-label {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-3); padding: 14px 10px 6px;
+  }
+  .toc-list a {
+    display: block; padding: 6px 10px; border-radius: 7px; font-size: 12.8px; font-weight: 500;
+    color: var(--text-2); text-decoration: none; margin-bottom: 1px; border-left: 2px solid transparent;
+  }
+  .toc-list a:hover { background: var(--surface-2); color: var(--text); }
+  .toc-list a.active { background: var(--brass-soft); color: var(--brass-ink); font-weight: 700; border-left-color: var(--brass); }
+  .toc-list .hidden { display: none; }
+
+  .toc-foot { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-3); }
+  .theme-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; margin-bottom: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 8px;
+    font-family: var(--sans); font-size: 11.5px; font-weight: 600; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--brass); color: var(--text); }
+
+  main { flex: 1; min-width: 0; }
+
+  /* ---------- header band ---------- */
+  .lede {
+    padding: 56px 56px 40px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-2) 100%);
+    color: #F3F1EA; position: relative; overflow: hidden;
+  }
+  .lede::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 88% -10%, rgba(217,178,92,.22), transparent 55%);
+  }
+  .lede-inner { position: relative; max-width: 720px; }
+  .lede .eyebrow { color: var(--brass-light); }
+  .lede h1 { font-size: 34px; margin: 10px 0 14px; color: #fff; }
+  .lede p { color: rgba(243,241,234,.78); font-size: 15.5px; max-width: 60ch; }
+  .lede-meta { display: flex; gap: 18px; margin-top: 22px; flex-wrap: wrap; }
+  .lede-meta div { font-size: 11.5px; color: rgba(243,241,234,.6); }
+  .lede-meta strong { display: block; font-family: var(--serif); font-size: 15px; color: var(--brass-light); font-weight: 600; }
+
+  .content { padding: 48px 56px 100px; max-width: 900px; }
+
+  section { padding-top: 26px; scroll-margin-top: 20px; }
+  section + section { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 44px; }
+  .section-kicker { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  h2 { font-size: 24px; margin: 0; }
+  section > p.lead { color: var(--text-2); font-size: 14.5px; margin-top: 4px; margin-bottom: 22px; }
+  h3 { font-size: 16.5px; margin: 30px 0 10px; }
+  h3:first-of-type { margin-top: 22px; }
+
+  /* ---------- cards & callouts, matching the portal's own vocabulary ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 18px 20px; margin: 14px 0;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .feature {
+    border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; background: var(--surface);
+  }
+  .feature h4 { margin: 0 0 6px; font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .feature h4 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brass); flex-shrink: 0; }
+  .feature p { margin: 0; font-size: 12.8px; color: var(--text-2); }
+
+  .callout {
+    display: flex; gap: 12px; border-radius: 10px; padding: 14px 16px; margin: 18px 0;
+    border: 1px solid var(--border); background: var(--surface-2); font-size: 13px; line-height: 1.55;
+  }
+  .callout .mark { font-family: var(--mono); font-weight: 700; font-size: 10.5px; flex-shrink: 0; padding: 2px 7px; border-radius: 100px; height: fit-content; letter-spacing: .04em; }
+  .callout p { margin: 0; color: var(--text-2); max-width: none; }
+  .callout.info { border-color: var(--border); }
+  .callout.info .mark { background: var(--brass-soft); color: var(--brass-ink); }
+  .callout.restrict { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: var(--danger-soft); }
+  .callout.restrict .mark { background: var(--danger); color: #fff; }
+  .callout.admin { border-color: color-mix(in srgb, var(--brass) 35%, var(--border)); background: var(--brass-soft); }
+  .callout.admin .mark { background: var(--navy); color: var(--brass-light); }
+  .callout.ok { border-color: color-mix(in srgb, var(--success) 30%, var(--border)); background: var(--success-soft); }
+  .callout.ok .mark { background: var(--success); color: #fff; }
+
+  .steps { counter-reset: step; list-style: none; margin: 18px 0; padding: 0; }
+  .steps li {
+    counter-increment: step; position: relative; padding: 2px 0 18px 38px; font-size: 13.5px; color: var(--text-2);
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: -1px; width: 24px; height: 24px;
+    border-radius: 50%; background: var(--navy); color: var(--brass-light); font-family: var(--mono);
+    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .steps li::after {
+    content: ''; position: absolute; left: 11.5px; top: 24px; bottom: 0; width: 1px; background: var(--border);
+  }
+  .steps li:last-child::after { display: none; }
+  .steps strong { color: var(--text); }
+
+  kbd, .ui {
+    font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--border);
+    padding: 1.5px 7px; border-radius: 5px; color: var(--text); white-space: nowrap;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.8px; margin: 16px 0; }
+  caption { caption-side: top; text-align: left; font-size: 11px; color: var(--text-3); margin-bottom: 6px; font-family: var(--mono); }
+  th { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  td:first-child, th:first-child { color: var(--text); font-weight: 600; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .table-wrap table { margin: 0; }
+  .table-wrap tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700;
+    padding: 3px 9px; border-radius: 100px; font-family: var(--mono);
+  }
+  .pill.todos { background: var(--success-soft); color: var(--success); }
+  .pill.admin { background: var(--navy); color: var(--brass-light); }
+  .pill.setor { background: var(--brass-soft); color: var(--brass-ink); }
+
+  .admin-tab-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 18px 0; }
+  .admin-tab-list .item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
+  .admin-tab-list .item .name { font-size: 12.8px; font-weight: 700; margin-bottom: 3px; }
+  .admin-tab-list .item .desc { font-size: 12px; color: var(--text-2); }
+
+  .toplink { position: fixed; right: 28px; bottom: 28px; }
+  .toplink a {
+    display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 50%;
+    background: var(--navy); color: var(--brass-light); text-decoration: none; box-shadow: var(--shadow);
+    font-size: 15px; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+  }
+  .toplink a.show { opacity: 1; pointer-events: auto; }
+
+  footer.page-foot { padding: 32px 56px 60px; color: var(--text-3); font-size: 11.5px; border-top: 1px solid var(--border); }
+
+  @media (max-width: 900px) {
+    .toc { display: none; }
+    .lede { padding: 40px 24px 30px; }
+    .content { padding: 34px 24px 80px; }
+    .grid-2, .admin-tab-list { grid-template-columns: 1fr; }
+  }
+  @media print {
+    .toc, .toplink, .theme-toggle { display: none; }
+    .lede { background: none; color: var(--text); }
+    .lede::before { display: none; }
+    section + section { break-before: page; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc" id="toc">
+    <div class="toc-brand">
+      <img src="assets/logo.png" alt="">
+      <div class="toc-brand-text">Manual do Portal<small>Oliveira &amp; Camilo</small></div>
+    </div>
+    <div class="toc-search">
+      <input type="text" id="tocFilter" placeholder="Buscar um tópico...">
+    </div>
+    <div class="toc-list" id="tocList">
+      <div class="toc-group-label">Primeiros passos</div>
+      <a href="#intro" data-label="o que é o portal">O que é o portal</a>
+      <a href="#acesso" data-label="login senha entrar esqueci">Como entrar</a>
+      <a href="#tela" data-label="tela layout barra lateral cabeçalho">Conhecendo a tela</a>
+
+      <div class="toc-group-label">Painel inicial</div>
+      <a href="#dashboard" data-label="painel inicial dashboard início">Painel inicial</a>
+      <a href="#navegacao" data-label="menu principal setores acordos jurídico rh financeiro">Menu principal e setores</a>
+
+      <div class="toc-group-label">Ferramentas do dia a dia</div>
+      <a href="#cursos" data-label="cursos oficinas aulas treinamento ead">Cursos e Oficinas</a>
+      <a href="#metas" data-label="metas progresso indicadores">Metas</a>
+      <a href="#chat" data-label="chat conversas mensagens">Chat interno</a>
+      <a href="#calculadora" data-label="calculadora passivo aditivo assessoria">Calculadora</a>
+      <a href="#sinalizacoes" data-label="sinalizações colaboradores gravidade">Sinalizações de colaboradores</a>
+      <a href="#notificacoes" data-label="notificações sino aniversário parabéns">Notificações e aniversários</a>
+      <a href="#reportar" data-label="reportar erro bug suporte ia">Reportar erro</a>
+
+      <div class="toc-group-label">Acesso e permissões</div>
+      <a href="#restricoes" data-label="restrições permissões setor acesso cruzado gestor">Como funcionam as restrições</a>
+
+      <div class="toc-group-label">Administração</div>
+      <a href="#admin" data-label="administração painel admin configurar">Área do administrador</a>
+
+      <div class="toc-group-label">Ajuda</div>
+      <a href="#duvidas" data-label="dúvidas frequentes problemas ajuda suporte">Dúvidas frequentes</a>
+    </div>
+    <div class="toc-foot">
+      <button class="theme-toggle" id="themeToggle" type="button">
+        <span id="themeIcon">◐</span> <span id="themeLabel">Alternar tema</span>
+      </button>
+      Portal Corporativo Oliveira &amp; Camilo
+    </div>
+  </nav>
+
+  <main>
+    <header class="lede">
+      <div class="lede-inner">
+        <div class="eyebrow">Manual de utilização</div>
+        <h1>Como usar o Portal Corporativo</h1>
+        <p>Guia de referência para o dia a dia de toda a equipe: o que cada tela faz, o que você pode ver e fazer de acordo com o seu setor, e o que é exclusivo da administração.</p>
+        <div class="lede-meta">
+          <div><strong>Todos os colaboradores</strong>login, painel inicial, cursos, chat</div>
+          <div><strong>Por setor</strong>acordos, jurídico, RH, financeiro, TI, diretoria</div>
+          <div><strong>Administradores</strong>cadastros, permissões, conteúdo</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <section id="intro">
+        <div class="section-kicker"><h2>O que é o portal</h2></div>
+        <p class="lead">A intranet do escritório: um único lugar para avisos, metas, audiências, cursos, ferramentas e comunicação interna, com o que cada pessoa vê ajustado ao seu setor e nível de acesso.</p>
+        <p>O Portal Corporativo Oliveira &amp; Camilo reúne, numa única tela, tudo o que a equipe usa no dia a dia: o painel do seu setor, a pauta de audiências, as metas do mês, avisos da diretoria, cursos internos, o chat da equipe, a calculadora de negociação e os canais para sinalizar problemas — tanto de processos quanto do próprio sistema.</p>
+        <p>Ele não substitui os sistemas especializados (AdvBox, SOSFY, Atlas etc.) — funciona como a porta de entrada para eles, além de centralizar o que é só do escritório e não tem em nenhum sistema externo.</p>
+      </section>
+
+      <section id="acesso">
+        <div class="section-kicker"><h2>Como entrar</h2></div>
+        <p class="lead">O acesso é feito com o seu e-mail corporativo. Sem uma conta cadastrada pelo administrador, não é possível entrar.</p>
+
+        <ol class="steps">
+          <li>Abra o endereço do portal no navegador.</li>
+          <li>Selecione o tipo de acesso: <strong>Sou usuário</strong> (uso normal) ou <strong>Sou administrador</strong> (só funciona se sua conta tiver nível Administrador).</li>
+          <li>Informe seu <strong>e-mail corporativo</strong> e a <strong>senha</strong> cadastrados e clique em entrar.</li>
+        </ol>
+
+        <h3>Esqueci minha senha</h3>
+        <p>Clique em <span class="ui">Esqueci minha senha</span> na tela de login, informe o e-mail corporativo cadastrado e um código de 6 dígitos será enviado para ele, válido por 10 minutos. Digite o código recebido para entrar sem precisar da senha antiga.</p>
+
+        <div class="callout info">
+          <span class="mark">CONTA NOVA</span>
+          <p>Se você é novo no escritório e ainda não consegue entrar, sua conta ainda não foi criada. Peça ao administrador para cadastrar seu acesso em <span class="ui">Administração → Funcionários</span> — sem isso, mesmo com o e-mail certo, o login é recusado.</p>
+        </div>
+      </section>
+
+      <section id="tela">
+        <div class="section-kicker"><h2>Conhecendo a tela</h2></div>
+        <p class="lead">Três áreas fixas: a barra lateral, o cabeçalho e o conteúdo — mais os painéis de notificação e administração, que abrem por cima quando acionados.</p>
+
+        <div class="grid-2">
+          <div class="feature"><h4><span class="dot"></span>Barra lateral</h4><p>Navegação principal por setor e as seções extras (Calculadora, Chat, Metas, Notificações, Sinalizações, Reportar Erro). Pode ser recolhida clicando na seta no rodapé, para ganhar espaço de tela.</p></div>
+          <div class="feature"><h4><span class="dot"></span>Cabeçalho</h4><p>Busca rápida por módulos e ferramentas, sino de notificações, botão de modo escuro/claro e seu avatar com iniciais — clique nele para sair do sistema.</p></div>
+          <div class="feature"><h4><span class="dot"></span>Área de conteúdo</h4><p>Muda conforme o item selecionado na barra lateral: painel inicial, um setor, ou uma das seções extras.</p></div>
+          <div class="feature"><h4><span class="dot"></span>Busca</h4><p>Digite no campo de busca do cabeçalho para encontrar rapidamente um módulo, ferramenta ou link, sem precisar navegar pelos menus.</p></div>
+        </div>
+      </section>
+
+      <section id="dashboard">
+        <div class="section-kicker"><h2>Painel inicial</h2></div>
+        <p class="lead">A tela que você vê ao entrar (item <span class="ui">Início</span> da barra lateral) — um resumo do que importa hoje.</p>
+
+        <h3>Acesso rápido</h3>
+        <p>Cartões com os sistemas e painéis do escritório. Cartões com o ícone de cadeado são restritos (ex.: <em>Acessos e Senhas</em>, só para líderes e administradores); os demais abrem o link configurado pelo administrador para aquele sistema.</p>
+
+        <h3>Pauta de audiências de hoje</h3>
+        <p>Lista das audiências do dia, com horário, cliente, advogado responsável e status (Confirmada, Cancelada ou Remarcada). É informativa — quem inclui ou altera audiências é o administrador.</p>
+
+        <h3>Metas do mês</h3>
+        <p>Mostra as metas gerais do escritório e as do seu setor, com barra de progresso. Clique em <span class="ui">Ver painel completo de metas</span> para o detalhamento (ver seção <a href="#metas">Metas</a>).</p>
+
+        <h3>Avisos importantes</h3>
+        <p>Comunicados da diretoria, com indicação de prioridade (uma barra colorida à esquerda: vermelha para alta, dourada para média, verde para baixa) e data. Avisos fixados aparecem primeiro.</p>
+
+        <h3>Funcionário do mês</h3>
+        <p>Reconhecimento definido pela administração, com foto (iniciais), cargo e o motivo do destaque.</p>
+
+        <h3>Aniversariantes e links úteis</h3>
+        <p>Aniversariantes do mês, com botão para <a href="#notificacoes">enviar parabéns</a>; e uma lista de links de tribunais e ferramentas de acesso rápido, mantidos pelo administrador.</p>
+      </section>
+
+      <section id="navegacao">
+        <div class="section-kicker"><h2>Menu principal e setores</h2></div>
+        <p class="lead">Início, Acordos, Jurídico, RH, Financeiro, Arquivos, Cursos e Instruções — cada item abre o painel/sistema correspondente, dentro do que você tem permissão de ver.</p>
+        <p>Um cartão bloqueado (cadeado) ou um item apagado na barra lateral não é um erro — é o sistema aplicando as regras de acesso do seu setor. Veja o detalhamento completo em <a href="#restricoes">Como funcionam as restrições</a>.</p>
+      </section>
+
+      <section id="cursos">
+        <div class="section-kicker"><h2>Cursos e Oficinas</h2><span class="pill todos">Todos os colaboradores</span></div>
+        <p class="lead">Treinamentos internos em vídeo, PDF ou apresentação, organizados por curso, com progresso salvo automaticamente por pessoa.</p>
+
+        <ol class="steps">
+          <li>Abra <span class="ui">Cursos</span> na barra lateral para ver o catálogo — só cursos <strong>publicados</strong> aparecem aqui.</li>
+          <li>Clique num curso para ver a lista de aulas, o palestrante (com contato e redes sociais, quando informados) e os materiais extras para download.</li>
+          <li>Assista/abra cada aula e marque-a como <strong>concluída</strong> — o percentual do curso é calculado automaticamente a partir das aulas concluídas.</li>
+        </ol>
+        <p>Seu progresso é individual: o que você marca como concluído não afeta os demais colaboradores, e fica salvo mesmo se você sair e voltar depois.</p>
+      </section>
+
+      <section id="metas">
+        <div class="section-kicker"><h2>Metas</h2><span class="pill todos">Todos, com visão ajustada por setor</span></div>
+        <p class="lead">Acompanhamento de metas Gerais (escritório todo), por Setor ou por Carteira, com valor-alvo, valor atingido, prazo e status.</p>
+        <p>Abra <span class="ui">Metas</span> na barra lateral para o painel completo, com barras de progresso e status (Em andamento, Atingida, Não atingida, Pausada). O que você vê aqui depende do seu perfil — veja a tabela em <a href="#restricoes">restrições</a>.</p>
+        <div class="callout info">
+          <span class="mark">SOMENTE LEITURA</span>
+          <p>Colaboradores acompanham as metas, mas não criam nem editam — isso é feito pela administração em <span class="ui">Administração → Gestão de Metas</span>.</p>
+        </div>
+      </section>
+
+      <section id="chat">
+        <div class="section-kicker"><h2>Chat interno</h2><span class="pill todos">Todos os colaboradores</span></div>
+        <p class="lead">Conversas individuais e grupos, com mensagens em tempo real.</p>
+        <p>Abra <span class="ui">Chat</span> na barra lateral, escolha uma conversa na lista e envie mensagens normalmente. Grupos são criados pelo administrador, que também define quem participa — você só vê e recebe mensagens de grupos dos quais é membro.</p>
+      </section>
+
+      <section id="calculadora">
+        <div class="section-kicker"><h2>Calculadora</h2><span class="pill todos">Todos os colaboradores</span></div>
+        <p class="lead">Três modos de cálculo para apoiar negociações: Passivo, Aditivo e Assessoria.</p>
+        <div class="grid-2">
+          <div class="feature"><h4><span class="dot"></span>Passivo</h4><p>Soma dívidas por tipo (bancária, fiscal, trabalhista etc.) e calcula o valor de entrada sugerido sobre o total.</p></div>
+          <div class="feature"><h4><span class="dot"></span>Aditivo</h4><p>Recalcula um contrato existente somando novas dívidas, aplicando desconto conforme o perfil do cliente.</p></div>
+          <div class="feature"><h4><span class="dot"></span>Assessoria</h4><p>Estima o valor do plano de assessoria (Essencial, Estratégico, Premium) a partir do faturamento e do número de funcionários do cliente.</p></div>
+        </div>
+        <p>Abra <span class="ui">Calculadora</span> na barra lateral e alterne entre as três abas no topo da tela; os resultados são recalculados automaticamente conforme você preenche os campos.</p>
+      </section>
+
+      <section id="sinalizacoes">
+        <div class="section-kicker"><h2>Sinalizações de colaboradores</h2><span class="pill setor">Visão ajustada por setor</span></div>
+        <p class="lead">Para registrar erros, falhas ou pontos de atenção sobre o trabalho de um colega — não é para assuntos de clientes.</p>
+        <ol class="steps">
+          <li>Abra <span class="ui">Sinalizações de Colaboradores</span> na barra lateral e clique em <span class="ui">Nova sinalização</span>.</li>
+          <li>Selecione o colaborador, o setor, uma classificação de gravidade (definida pelo administrador) e descreva o ocorrido.</li>
+          <li>Registre — a sinalização fica marcada como <strong>aberta</strong> até alguém marcá-la como <strong>resolvida</strong>.</li>
+        </ol>
+        <p>Por padrão você só vê as sinalizações do seu próprio setor. Quem tem a permissão <em>"Ver sinalizações de todos os setores"</em> (concedida pelo administrador) ou é administrador vê todas.</p>
+      </section>
+
+      <section id="notificacoes">
+        <div class="section-kicker"><h2>Notificações e aniversários</h2><span class="pill todos">Todos os colaboradores</span></div>
+        <p class="lead">O sino no cabeçalho avisa sobre parabéns recebidos e comunicados do sistema, em tempo real.</p>
+        <p>Clique no sino para ver as notificações recentes, ou abra <span class="ui">Notificações</span> na barra lateral para o histórico completo. Notificações novas chegam na hora, sem precisar recarregar a página.</p>
+
+        <h3>Enviando parabéns</h3>
+        <p>No cartão de aniversariantes do painel inicial, clique no ícone de bolo ao lado do nome da pessoa para enviar parabéns — ela recebe uma notificação informando quem parabenizou. Só é possível enviar parabéns uma vez por pessoa.</p>
+      </section>
+
+      <section id="reportar">
+        <div class="section-kicker"><h2>Reportar erro</h2><span class="pill todos">Todos os colaboradores</span></div>
+        <p class="lead">Encontrou algo que não funciona no portal? Registre aqui — o relato é enviado automaticamente para análise técnica.</p>
+        <ol class="steps">
+          <li>Abra <span class="ui">Reportar Erro</span> na barra lateral.</li>
+          <li>Descreva o título, a área afetada, a prioridade e o que aconteceu; anexe prints ou vídeos se ajudar a explicar.</li>
+          <li>Envie — o relato é registrado e, quando o serviço de análise automática está ativo, você recebe um resumo do diagnóstico na mesma tela.</li>
+        </ol>
+        <p>Você também pode encaminhar o relato por e-mail (Gmail, Outlook, aplicativo padrão ou copiando o texto) para o endereço configurado pelo administrador, usando os botões que aparecem após o envio.</p>
+      </section>
+
+      <section id="restricoes">
+        <div class="section-kicker"><h2>Como funcionam as restrições</h2></div>
+        <p class="lead">O acesso é organizado por setor, não por pessoa: o que você vê depende do setor do seu cadastro e do que foi liberado para ele.</p>
+
+        <div class="callout restrict">
+          <span class="mark">REGRA BASE</span>
+          <p>Por padrão, cada setor só enxerga o próprio painel. Acessar o painel de outro setor, ver a meta geral do escritório, ver sinalizações de todos os setores ou ver o quadro completo de funcionários exige uma permissão concedida explicitamente pelo administrador — nada é liberado "por engano".</p>
+        </div>
+
+        <h3>O que muda conforme o seu perfil</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Situação</th><th>O que você vê</th></tr></thead>
+            <tbody>
+              <tr><td>Colaborador comum</td><td>O painel do próprio setor; metas Gerais, as próprias e a meta coletiva do próprio setor; sinalizações do próprio setor; funcionários do próprio setor.</td></tr>
+              <tr><td>Setor com acesso cruzado liberado</td><td>Tudo o que o colaborador comum vê, mais os painéis/telas específicas que o administrador liberou para o setor (ex.: RH enxerga sinalizações e funcionários de todos os setores, por padrão do escritório).</td></tr>
+              <tr><td>Gestor de um setor</td><td>Todas as metas do(s) setor(es) que administra, incluindo metas de carteira e individuais de colegas da equipe.</td></tr>
+              <tr><td>Administrador</td><td>Acesso completo a todas as telas, setores e ao painel de Administração — não depende das permissões acima.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Módulos com cadeado</h3>
+        <p>Alguns cartões do Acesso Rápido (como <em>Acessos e Senhas</em>) são restritos a líderes e administradores, independentemente do setor. Eles aparecem com um ícone de cadeado e, ao clicar, informam quem pode abri-los.</p>
+
+        <div class="callout info">
+          <span class="mark">NÃO É UM ERRO</span>
+          <p>Se um item não aparece para você ou vem marcado como "Sem permissão", isso reflete a configuração do seu setor — fale com o administrador se acredita que deveria ter acesso.</p>
+        </div>
+      </section>
+
+      <section id="admin">
+        <div class="section-kicker"><h2>Área do administrador</h2><span class="pill admin">Somente nível Administrador</span></div>
+        <p class="lead">Quem tem nível de acesso <strong>Administrador</strong> vê um botão extra no cabeçalho para abrir o painel de Administração, com uma aba para cada área do portal.</p>
+
+        <div class="admin-tab-list">
+          <div class="item"><div class="name">Acesso rápido</div><div class="desc">Define o link de destino e o setor dono de cada cartão do painel inicial.</div></div>
+          <div class="item"><div class="name">Funcionários</div><div class="desc">Cadastra, edita e remove colaboradores. Requer criar o login da pessoa antes, no painel do Supabase.</div></div>
+          <div class="item"><div class="name">Audiências</div><div class="desc">Gerencia a pauta de audiências exibida no painel inicial.</div></div>
+          <div class="item"><div class="name">Avisos</div><div class="desc">Publica, edita e fixa os comunicados da diretoria.</div></div>
+          <div class="item"><div class="name">Gestão de Metas</div><div class="desc">Cria metas Gerais, por Setor ou por Carteira, com valores, prazos e responsável.</div></div>
+          <div class="item"><div class="name">Funcionário do mês</div><div class="desc">Define quem é o destaque do mês e a mensagem de reconhecimento.</div></div>
+          <div class="item"><div class="name">Aniversariantes</div><div class="desc">Vincula aniversariantes a um cadastro de funcionário, para habilitar parabéns e notificações.</div></div>
+          <div class="item"><div class="name">Links de sistemas</div><div class="desc">Mantém a lista de links úteis (tribunais, órgãos etc.).</div></div>
+          <div class="item"><div class="name">Ferramentas</div><div class="desc">Mantém a lista de ferramentas do dia a dia da equipe.</div></div>
+          <div class="item"><div class="name">Classificações</div><div class="desc">Define os níveis de gravidade usados nas sinalizações de colaboradores.</div></div>
+          <div class="item"><div class="name">Permissões de acesso</div><div class="desc">Libera acesso cruzado entre setores e define quem é gestor de cada setor.</div></div>
+          <div class="item"><div class="name">Grupos de chat</div><div class="desc">Cria grupos internos e escolhe exatamente quem participa de cada um.</div></div>
+          <div class="item"><div class="name">Cursos e Oficinas</div><div class="desc">Cadastra cursos, aulas (com upload de vídeo/PDF), materiais extras e dados do palestrante.</div></div>
+          <div class="item"><div class="name">Relatório de Parabéns</div><div class="desc">Consulta, somente leitura, quem recebeu e quem enviou parabéns.</div></div>
+          <div class="item"><div class="name">Central de Manutenção IA</div><div class="desc">Histórico completo dos relatos de erro e o diagnóstico técnico gerado pela análise automática.</div></div>
+          <div class="item"><div class="name">Conexão Supabase</div><div class="desc">Confirma se o portal está corretamente conectado ao banco de dados.</div></div>
+        </div>
+
+        <h3>Visualizar como outro colaborador</h3>
+        <p>No cabeçalho, o administrador tem um seletor <span class="ui">Visualizando...</span> para simular a tela de um colaborador de qualquer setor — útil para conferir o efeito de uma permissão antes de avisar a equipe.</p>
+
+        <div class="callout admin">
+          <span class="mark">CADASTRAR ALGUÉM NOVO</span>
+          <p>Antes de cadastrar um novo colaborador em <span class="ui">Administração → Funcionários</span>, é preciso criar o login da pessoa no painel do Supabase (<span class="ui">Authentication → Users</span>) e colar o código gerado no formulário — a própria tela do sistema traz esse aviso e o passo a passo.</p>
+        </div>
+      </section>
+
+      <section id="duvidas">
+        <div class="section-kicker"><h2>Dúvidas frequentes</h2></div>
+
+        <h3>Não consigo entrar mesmo com o e-mail certo</h3>
+        <p>Confirme se selecionou o tipo de acesso correto (<span class="ui">Sou usuário</span> ou <span class="ui">Sou administrador</span>) e se seu cadastro já foi concluído pelo administrador — uma conta sem cadastro de funcionário vinculado não consegue entrar.</p>
+
+        <h3>Uma tela ou botão não funciona</h3>
+        <p>Use <a href="#reportar">Reportar Erro</a> — o relato já leva automaticamente informações técnicas da sua sessão, o que agiliza a correção.</p>
+
+        <h3>Por que não vejo o painel de outro setor?</h3>
+        <p>Veja <a href="#restricoes">Como funcionam as restrições</a>. Se acredita que deveria ter acesso, fale com o administrador.</p>
+
+        <h3>Meu progresso em um curso sumiu</h3>
+        <p>O progresso é salvo por pessoa e por curso automaticamente ao marcar aulas como concluídas. Se algo parecer errado, reporte o erro para que seja verificado.</p>
+      </section>
+
+    </div>
+
+    <footer class="page-foot">Manual do Portal Corporativo Oliveira &amp; Camilo — reflete as funcionalidades disponíveis no sistema. Em caso de dúvida sobre uma permissão específica, confirme com a administração.</footer>
+  </main>
+</div>
+
+<div class="toplink"><a href="#toc" id="toTop" aria-label="Voltar ao topo">↑</a></div>
+
+<script>
+(function () {
+  var toggle = document.getElementById('themeToggle');
+  var icon = document.getElementById('themeIcon');
+  var label = document.getElementById('themeLabel');
+  var root = document.documentElement;
+  function apply(mode) {
+    if (mode) { root.setAttribute('data-theme', mode); }
+    else { root.removeAttribute('data-theme'); }
+    icon.textContent = mode === 'dark' ? '☀' : '◐';
+    label.textContent = mode === 'dark' ? 'Modo claro' : (mode === 'light' ? 'Modo escuro' : 'Alternar tema');
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('manual-theme'); } catch (e) {}
+  apply(saved);
+  toggle.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme');
+    var next = current === 'dark' ? 'light' : 'dark';
+    apply(next);
+    try { localStorage.setItem('manual-theme', next); } catch (e) {}
+  });
+
+  var filterInput = document.getElementById('tocFilter');
+  var links = Array.prototype.slice.call(document.querySelectorAll('#tocList a'));
+  var groupLabels = Array.prototype.slice.call(document.querySelectorAll('.toc-group-label'));
+  filterInput.addEventListener('input', function () {
+    var q = filterInput.value.trim().toLowerCase();
+    links.forEach(function (a) {
+      var haystack = (a.textContent + ' ' + (a.dataset.label || '')).toLowerCase();
+      a.classList.toggle('hidden', q.length > 0 && haystack.indexOf(q) === -1);
+    });
+    groupLabels.forEach(function (g) {
+      var el = g.nextElementSibling, anyVisible = false;
+      while (el && el.tagName === 'A') { if (!el.classList.contains('hidden')) anyVisible = true; el = el.nextElementSibling; }
+      g.classList.toggle('hidden', q.length > 0 && !anyVisible);
+    });
+  });
+
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id]'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      var link = byId[entry.target.id];
+      if (!link) return;
+      if (entry.isIntersecting) {
+        links.forEach(function (a) { a.classList.remove('active'); });
+        link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+  sections.forEach(function (s) { observer.observe(s); });
+
+  var toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', function () {
+    toTop.classList.toggle('show', window.scrollY > 600);
+  }, { passive: true });
+})();
+</script>
+</body>
+</html>
