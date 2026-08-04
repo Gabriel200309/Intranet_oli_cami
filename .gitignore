@@ -1,6 +1,3 @@
-# Configuração local do Supabase (contém a URL e a anon key do projeto real)
-supabase-config.js
-
 # Segredos de Edge Functions
 supabase/functions/**/.env
 
