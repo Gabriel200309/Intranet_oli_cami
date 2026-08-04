@@ -2,7 +2,12 @@
 
 Intranet interna do escritório: painéis por setor, avisos, metas, cursos/oficinas (EAD), calculadoras, chat, sinalizações de colaboradores, reporte de erros e administração completa.
 
-Aplicação client-side em HTML/CSS/JavaScript puro (sem build, sem framework) que roda direto no navegador. Login, cadastro de funcionários e chat são autenticados via [Supabase](https://supabase.com); as demais telas (metas, avisos, cursos, admin, calculadoras) funcionam hoje com dados de exemplo carregados em memória — a migração completa dessas telas para o Supabase é o próximo passo, documentado em [docs/GUIA_MIGRACAO_FRONTEND.md](docs/GUIA_MIGRACAO_FRONTEND.md).
+Aplicação client-side em HTML/CSS/JavaScript puro (sem build, sem framework) que roda direto no navegador, com [Supabase](https://supabase.com) como backend (auth, banco, Storage, Realtime e a Edge Function de análise de erros por IA). Login, funcionários, avisos, audiências, metas, cursos/aulas/materiais, aniversariantes, parabéns, notificações, sinalizações, links, ferramentas, classificações e permissões por setor gravam direto nas tabelas do Supabase — sem `supabase-config.js` preenchido, o portal ainda funciona com dados de exemplo locais (útil para prototipagem), só não persiste nada. Detalhes do mapeamento tela→tabela em [docs/GUIA_MIGRACAO_FRONTEND.md](docs/GUIA_MIGRACAO_FRONTEND.md).
+
+**Passos manuais que ainda faltam no painel do Supabase** (não dá para automatizar via chave anon):
+- Criar o bucket **Storage → New bucket → `cursos`** (público) para upload de vídeos/PDFs/fotos dos cursos.
+- Publicar a Edge Function `analisar-erro-ia` (`supabase functions deploy analisar-erro-ia`) e configurar `ANTHROPIC_API_KEY` nos secrets, para a análise automática de erros funcionar (sem isso, "Reportar Erro" continua salvando o relato, só sem a análise por IA).
+- Cadastrar novos funcionários exige primeiro criar o usuário em **Authentication → Users**, depois colar o UUID gerado no formulário de Administração → Funcionários (ver aviso na própria tela).
 
 ## Como rodar localmente
 
@@ -36,6 +41,7 @@ js/
   data.js                     dados de exemplo (módulos, funcionários, cursos, calculadora, etc.)
   state.js                    estado global da aplicação (em memória)
   supabase-client.js          conexão com o Supabase + captura de diagnóstico para o "Reportar Erro"
+  data-sync.js                carrega cada tabela do Supabase para state.* após o login
   access-control.js           regras de permissão por setor/cargo
   cursos-helpers.js           progresso de cursos, formatação de aulas
   aniversarios.js             aniversariantes do mês e envio de parabéns
