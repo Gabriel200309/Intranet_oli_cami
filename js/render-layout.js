@@ -421,34 +421,51 @@ document.getElementById('teamFileInput').addEventListener('change', function(e) 
   reader.onload = () => { state.teamPhoto = reader.result; renderHero(); showToast('Foto do time atualizada!'); };
   reader.readAsDataURL(file);
 });
-document.getElementById('cursoUploadInput').addEventListener('change', function(e) {
+async function uploadParaBucketCursos(file) {
+  const caminho = `${Date.now()}-${uid('f')}-${file.name}`.replace(/\s+/g, '_');
+  const { error } = await supabaseClient.storage.from('cursos').upload(caminho, file);
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from('cursos').getPublicUrl(caminho);
+  return data.publicUrl;
+}
+document.getElementById('cursoUploadInput').addEventListener('change', async function(e) {
   const file = e.target.files[0]; if (!file) return;
   const target = this.dataset.target;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    if (target === 'foto') {
-      state.editing.speakerFotoTemp = dataUrl;
-      const img = document.getElementById('crs-foto-preview');
-      if (img) { img.src = dataUrl; img.style.display = ''; }
-      showToast('Foto carregada!');
-    } else if (target === 'aula') {
-      state.editing.aulaArquivoTemp = { nome: file.name, url: dataUrl };
-      const span = document.getElementById('aula-arquivo-status');
-      if (span) span.textContent = 'Arquivo carregado: ' + file.name;
-      const urlInput = document.getElementById('aula-url');
-      if (urlInput) { urlInput.value = ''; urlInput.placeholder = 'Arquivo enviado — ' + file.name; }
-      showToast('Arquivo da aula carregado!');
-    } else if (target === 'material') {
-      state.editing.materialArquivoTemp = { nome: file.name, url: dataUrl };
-      const span = document.getElementById('material-arquivo-status');
-      if (span) span.textContent = 'Arquivo carregado: ' + file.name;
-      showToast('Material carregado!');
-    }
-  };
-  reader.readAsDataURL(file);
   this.value = '';
+  if (!supabaseClient) {
+    const reader = new FileReader();
+    reader.onload = () => aplicarUploadCurso(target, file.name, reader.result);
+    reader.readAsDataURL(file);
+    return;
+  }
+  showToast('Enviando arquivo...');
+  try {
+    const url = await uploadParaBucketCursos(file);
+    aplicarUploadCurso(target, file.name, url);
+  } catch (err) {
+    showToast('Não foi possível enviar o arquivo: ' + err.message + ' (crie o bucket "cursos" no Supabase Storage)');
+  }
 });
+function aplicarUploadCurso(target, nomeArquivo, url) {
+  if (target === 'foto') {
+    state.editing.speakerFotoTemp = url;
+    const img = document.getElementById('crs-foto-preview');
+    if (img) { img.src = url; img.style.display = ''; }
+    showToast('Foto carregada!');
+  } else if (target === 'aula') {
+    state.editing.aulaArquivoTemp = { nome: nomeArquivo, url };
+    const span = document.getElementById('aula-arquivo-status');
+    if (span) span.textContent = 'Arquivo carregado: ' + nomeArquivo;
+    const urlInput = document.getElementById('aula-url');
+    if (urlInput) { urlInput.value = ''; urlInput.placeholder = 'Arquivo enviado — ' + nomeArquivo; }
+    showToast('Arquivo da aula carregado!');
+  } else if (target === 'material') {
+    state.editing.materialArquivoTemp = { nome: nomeArquivo, url };
+    const span = document.getElementById('material-arquivo-status');
+    if (span) span.textContent = 'Arquivo carregado: ' + nomeArquivo;
+    showToast('Material carregado!');
+  }
+}
 document.getElementById('bugAnexoInput').addEventListener('change', function(e) {
   const files = Array.from(e.target.files || []);
   if (!files.length) return;

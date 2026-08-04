@@ -147,7 +147,7 @@ async function carregarFuncionarios() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.from('funcionarios').select('*').order('nome');
   if (error) { console.error('Erro ao carregar funcionários:', error.message); return; }
-  state.employees = data || [];
+  state.employees = (data || []).map(e => ({ ...e, nascimento: e.nascimento ? formatarDataBR(e.nascimento) : '' }));
 }
 async function completeLogin(emp) {
   state.currentUser = emp;
@@ -165,6 +165,8 @@ async function completeLogin(emp) {
   if (supabaseClient) {
     await carregarFuncionarios();
     await carregarConversas();
+    await sincronizarDadosSupabase();
+    renderAll();
     if (state.currentView === 'chat') renderChatView();
   }
 }
@@ -236,6 +238,7 @@ async function verificarCodigoAcesso(ev) {
 async function logout() {
   if (supabaseClient) await supabaseClient.auth.signOut();
   if (chatRealtimeChannel) { supabaseClient.removeChannel(chatRealtimeChannel); chatRealtimeChannel = null; }
+  if (notificacoesRealtimeChannel) { supabaseClient.removeChannel(notificacoesRealtimeChannel); notificacoesRealtimeChannel = null; }
   state.loggedIn = false;
   state.currentUser = null;
   state.adminOpen = false;

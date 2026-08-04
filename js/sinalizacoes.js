@@ -4,26 +4,52 @@
    de gravidade (Leve, Média, Grave etc.) é definida pelo administrador
    na seção de Administração > Classificações de Sinalização. */
 function toggleNovaSinalizacao() { state.novaSinalizacao = !state.novaSinalizacao; renderSinalizacoesView(); }
-function submitSinalizacao() {
-  const titulo = val('sn-titulo'), colaborador = val('sn-colaborador'), setor = val('sn-setor'), classificacaoId = val('sn-classificacao'), descricao = val('sn-descricao');
-  if (!titulo.trim() || !colaborador.trim()) { showToast('Informe ao menos o título e o colaborador sinalizado.'); return; }
-  state.sinalizacoes.unshift({
-    id: uid('s'), titulo, colaborador, setor: setor || 'Geral', classificacaoId: classificacaoId || (state.classificacoes[0] && state.classificacoes[0].id),
-    status: 'aberta', descricao, autor: 'Você',
-    data: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-  });
+async function submitSinalizacao() {
+  const colaboradorId = val('sn-colaborador'), titulo = val('sn-titulo'), setor = val('sn-setor'), classificacaoId = val('sn-classificacao'), descricao = val('sn-descricao');
+  const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
+  if (!titulo.trim() || !colaboradorEmp) { showToast('Informe ao menos o título e o colaborador sinalizado.'); return; }
+  if (!supabaseClient) {
+    state.sinalizacoes.unshift({
+      id: uid('s'), titulo, colaborador: colaboradorEmp.nome, setor: setor || 'Geral', classificacaoId: classificacaoId || (state.classificacoes[0] && state.classificacoes[0].id),
+      status: 'aberta', descricao, autor: 'Você',
+      data: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+    });
+    state.novaSinalizacao = false;
+    showToast('Sinalização registrada!');
+    renderSinalizacoesView();
+    renderSidebar();
+    return;
+  }
+  const payload = {
+    titulo, colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome,
+    setor: setor || colaboradorEmp.setor, classificacao_id: classificacaoId || (state.classificacoes[0] && state.classificacoes[0].id) || null,
+    descricao, autor_id: state.currentUser.id,
+  };
+  const { error } = await supabaseClient.from('sinalizacoes').insert(payload);
+  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novaSinalizacao = false;
   showToast('Sinalização registrada!');
+  await carregarSinalizacoes();
   renderSinalizacoesView();
   renderSidebar();
 }
-function resolverSinalizacao(id) {
+async function resolverSinalizacao(id) {
   const s = state.sinalizacoes.find(x => x.id === id);
-  if (s) s.status = s.status === 'resolvida' ? 'aberta' : 'resolvida';
+  if (!s) return;
+  const novoStatus = s.status === 'resolvida' ? 'aberta' : 'resolvida';
+  s.status = novoStatus;
   renderSinalizacoesView();
   renderSidebar();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('sinalizacoes').update({ status: novoStatus }).eq('id', id);
+    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+  }
 }
-function removerSinalizacao(id) {
+async function removerSinalizacao(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('sinalizacoes').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
   state.sinalizacoes = state.sinalizacoes.filter(x => x.id !== id);
   renderSinalizacoesView();
   renderSidebar();
@@ -51,7 +77,7 @@ function renderSinalizacoesView() {
         <div class="form-grid" style="grid-template-columns:1fr 1fr;">
           <div class="form-field" style="grid-column:span 2;"><label>Título</label><input id="sn-titulo" placeholder="Ex: Atraso recorrente na entrega de tarefas"></div>
           <div class="form-field"><label>Colaborador sinalizado</label>
-            <select id="sn-colaborador">${state.employees.map(e => `<option value="${esc(e.nome)}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+            <select id="sn-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
           </div>
           <div class="form-field"><label>Setor</label>
             <select id="sn-setor">${SETORES.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>

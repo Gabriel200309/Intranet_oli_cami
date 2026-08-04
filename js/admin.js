@@ -102,7 +102,7 @@ function renderAdminAcessoRapido(c) {
     `).join('')}
   `;
 }
-function saveModuleLink(id) {
+async function saveModuleLink(id) {
   const v = normalizeUrl(val('modlink-'+id));
   const setorSel = val('modsetor-'+id);
   const m = state.modules.find(x=>x.id===id);
@@ -110,6 +110,10 @@ function saveModuleLink(id) {
   setVal('modlink-'+id, v);
   renderQuickAccess(); renderSearchResults(); renderAdminTabContent();
   showToast('Módulo atualizado!');
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('modulos').update({ link: v, setor: setorSel || null }).eq('id', id);
+    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+  }
 }
 
 
@@ -118,6 +122,16 @@ function renderAdminFuncionarios(c) {
   const ed = state.editing.employee;
   const e = ed ? state.employees.find(x=>x.id===ed) : null;
   c.innerHTML = `
+    ${(supabaseClient && !ed) ? `
+      <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;">
+        <i class="fa-solid fa-circle-info"></i> Para um novo colaborador acessar o portal, primeiro crie o login dele em
+        <strong>Supabase → Authentication → Users → Add user</strong> (defina o e-mail e uma senha temporária).
+        Depois cole aqui o <strong>UUID</strong> gerado (aparece na lista de usuários) para completar o cadastro.
+      </div>
+      <div class="form-grid">
+        <div class="form-field" style="grid-column:span 2;"><label>UUID do usuário (Supabase Authentication → Users)</label><input id="f-uuid" placeholder="ex: 4b1e2d3a-....."></div>
+      </div>
+    ` : ''}
     <div class="form-grid">
       <div class="form-field"><label>Nome completo</label><input id="f-nome" value="${esc(e?e.nome:'')}" placeholder="Ex: Ana Souza"></div>
       <div class="form-field"><label>Número (matrícula)</label><input id="f-numero" value="${esc(e?e.numero:'')}" placeholder="Ex: 0012"></div>
@@ -151,17 +165,45 @@ function renderAdminFuncionarios(c) {
     `).join('')}
   `;
 }
-function submitEmployee() {
+async function submitEmployee() {
   const data = { nome: val('f-nome'), numero: val('f-numero'), setor: val('f-setor'), cargo: val('f-cargo'), nivel: val('f-nivel'), nascimento: val('f-nasc'), telefone: val('f-tel'), email: val('f-email') };
   if (!data.nome.trim()) return;
   const ed = state.editing.employee;
-  if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed }; showToast('Funcionário atualizado!'); }
-  else { state.employees.push({ ...data, id: uid('e') }); showToast('Funcionário cadastrado!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed }; showToast('Funcionário atualizado!'); }
+    else { state.employees.push({ ...data, id: uid('e') }); showToast('Funcionário cadastrado!'); }
+    state.editing.employee = null;
+    renderAdminTabContent();
+    return;
+  }
+  const payload = {
+    nome: data.nome, numero: data.numero || null, setor: data.setor, cargo: data.cargo, nivel: data.nivel,
+    nascimento: dataBRparaISO(data.nascimento), telefone: data.telefone || null, email: data.email,
+  };
+  if (ed) {
+    const { error } = await supabaseClient.from('funcionarios').update(payload).eq('id', ed);
+    if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+    showToast('Funcionário atualizado!');
+  } else {
+    const uuid = val('f-uuid').trim();
+    if (!uuid) { showToast('Cole o UUID do usuário criado em Authentication → Users.'); return; }
+    const { error } = await supabaseClient.from('funcionarios').insert({ id: uuid, ...payload });
+    if (error) { showToast('Não foi possível cadastrar: ' + error.message); return; }
+    showToast('Funcionário cadastrado!');
+  }
   state.editing.employee = null;
+  await carregarFuncionarios();
   renderAdminTabContent();
 }
 function editEmployee(id) { state.editing.employee = id; renderAdminTabContent(); }
-function removeEmployee(id) { state.employees = state.employees.filter(x=>x.id!==id); renderAdminTabContent(); }
+async function removeEmployee(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('funcionarios').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.employees = state.employees.filter(x=>x.id!==id);
+  renderAdminTabContent();
+}
 function cancelEdit(kind) { state.editing[kind] = null; renderAdminTabContent(); }
 
 /* --- AUDIÊNCIAS --- */
@@ -172,7 +214,7 @@ function renderAdminAudiencias(c) {
     <div class="form-grid">
       <div class="form-field"><label>Horário</label><input id="au-hora" value="${esc(a?a.hora:'')}" placeholder="Ex: 09:00"></div>
       <div class="form-field"><label>Status</label><select id="au-status">
-        ${['Confirmada','Aguardando pauta','Cancelada'].map(s=>`<option ${a&&a.status===s?'selected':''}>${s}</option>`).join('')}
+        ${['Confirmada','Cancelada','Remarcada'].map(s=>`<option ${a&&a.status===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
       <div class="form-field"><label>Cliente</label><input id="au-cliente" value="${esc(a?a.cliente:'')}" placeholder="Nome do cliente"></div>
       <div class="form-field"><label>Advogado responsável</label><input id="au-advogado" value="${esc(a?a.advogado:'')}" placeholder="Ex: Dra. Camila Prado"></div>
@@ -193,17 +235,36 @@ function renderAdminAudiencias(c) {
     `).join('')}
   `;
 }
-function submitAudiencia() {
+async function submitAudiencia() {
   const data = { hora: val('au-hora'), cliente: val('au-cliente'), advogado: val('au-advogado'), status: val('au-status') };
   if (!data.cliente.trim() || !data.hora.trim()) return;
   const ed = state.editing.audiencia;
-  if (ed) { const i = state.audiencias.findIndex(x=>x.id===ed); state.audiencias[i] = { ...data, id: ed }; showToast('Audiência atualizada!'); }
-  else { state.audiencias.push({ ...data, id: uid('a') }); showToast('Audiência adicionada à pauta!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.audiencias.findIndex(x=>x.id===ed); state.audiencias[i] = { ...data, id: ed }; showToast('Audiência atualizada!'); }
+    else { state.audiencias.push({ ...data, id: uid('a') }); showToast('Audiência adicionada à pauta!'); }
+    state.editing.audiencia = null;
+    renderAdminTabContent(); renderAudiencias();
+    return;
+  }
+  const payload = { hora: data.hora, cliente: data.cliente, advogado: data.advogado, status: data.status };
+  const { error } = ed
+    ? await supabaseClient.from('audiencias').update(payload).eq('id', ed)
+    : await supabaseClient.from('audiencias').insert(payload);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Audiência atualizada!' : 'Audiência adicionada à pauta!');
   state.editing.audiencia = null;
+  await carregarAudiencias();
   renderAdminTabContent(); renderAudiencias();
 }
 function editAudiencia(id) { state.editing.audiencia = id; renderAdminTabContent(); }
-function removeAudiencia(id) { state.audiencias = state.audiencias.filter(x=>x.id!==id); renderAdminTabContent(); renderAudiencias(); }
+async function removeAudiencia(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('audiencias').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.audiencias = state.audiencias.filter(x=>x.id!==id);
+  renderAdminTabContent(); renderAudiencias();
+}
 
 /* --- AVISOS --- */
 function renderAdminAvisos(c) {
@@ -240,17 +301,36 @@ function renderAdminAvisos(c) {
     `).join('')}
   `;
 }
-function submitAviso() {
+async function submitAviso() {
   const data = { titulo: val('av-titulo'), desc: val('av-desc'), prioridade: val('av-prior'), data: val('av-data'), fixado: val('av-fix')==='sim' };
   if (!data.titulo.trim()) return;
   const ed = state.editing.aviso;
-  if (ed) { const i = state.avisos.findIndex(x=>x.id===ed); state.avisos[i] = { ...data, id: ed }; showToast('Aviso atualizado!'); }
-  else { state.avisos.push({ ...data, id: uid('v') }); showToast('Aviso publicado!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.avisos.findIndex(x=>x.id===ed); state.avisos[i] = { ...data, id: ed }; showToast('Aviso atualizado!'); }
+    else { state.avisos.push({ ...data, id: uid('v') }); showToast('Aviso publicado!'); }
+    state.editing.aviso = null;
+    renderAdminTabContent(); renderAvisos();
+    return;
+  }
+  const payload = { titulo: data.titulo, descricao: data.desc, prioridade: data.prioridade, data_exibicao: data.data, fixado: data.fixado };
+  const { error } = ed
+    ? await supabaseClient.from('avisos').update(payload).eq('id', ed)
+    : await supabaseClient.from('avisos').insert(payload);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Aviso atualizado!' : 'Aviso publicado!');
   state.editing.aviso = null;
+  await carregarAvisos();
   renderAdminTabContent(); renderAvisos();
 }
 function editAviso(id) { state.editing.aviso = id; renderAdminTabContent(); }
-function removeAviso(id) { state.avisos = state.avisos.filter(x=>x.id!==id); renderAdminTabContent(); renderAvisos(); }
+async function removeAviso(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('avisos').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.avisos = state.avisos.filter(x=>x.id!==id);
+  renderAdminTabContent(); renderAvisos();
+}
 
 /* --- METAS --- */
 /* --- GESTÃO DE METAS (Geral / Setor / Carteira) --- */
@@ -326,15 +406,22 @@ function onMetaTipoChange(tipo) {
   if (setorField) setorField.style.display = tipo === 'Geral' ? 'none' : 'flex';
   if (carteiraField) carteiraField.style.display = tipo === 'Carteira' ? 'flex' : 'none';
 }
-function promptNovaCarteira() {
+async function promptNovaCarteira() {
   const nome = window.prompt('Nome da nova carteira:');
   if (!nome || !nome.trim()) return;
-  const nova = { id: uid('cw'), nome: nome.trim() };
-  state.carteiras.push(nova);
+  if (!supabaseClient) {
+    state.carteiras.push({ id: uid('cw'), nome: nome.trim() });
+    renderAdminTabContent();
+    showToast('Carteira criada! Selecione-a no campo Carteira.');
+    return;
+  }
+  const { error } = await supabaseClient.from('carteiras').insert({ nome: nome.trim() });
+  if (error) { showToast('Não foi possível criar a carteira: ' + error.message); return; }
+  await carregarCarteiras();
   renderAdminTabContent();
   showToast('Carteira criada! Selecione-a no campo Carteira.');
 }
-function submitMeta() {
+async function submitMeta() {
   const tipo = val('mt-tipo');
   const data = {
     nome: val('mt-nome'),
@@ -354,15 +441,37 @@ function submitMeta() {
     showToast('A data final não pode ser anterior à data inicial.'); return;
   }
   const ed = state.editing.meta;
-  if (ed) { const i = state.metas.findIndex(x=>x.id===ed); state.metas[i] = { ...data, id: ed }; showToast('Meta atualizada!'); }
-  else { state.metas.push({ ...data, id: uid('mt') }); showToast('Meta criada!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.metas.findIndex(x=>x.id===ed); state.metas[i] = { ...data, id: ed }; showToast('Meta atualizada!'); }
+    else { state.metas.push({ ...data, id: uid('mt') }); showToast('Meta criada!'); }
+    state.editing.meta = null;
+    renderAdminTabContent(); renderMetas();
+    if (state.currentView === 'metas') renderMetasDashboardView();
+    return;
+  }
+  const payload = {
+    nome: data.nome, descricao: data.descricao, tipo: data.tipo,
+    setor: data.setor || null, carteira_id: data.carteira || null,
+    valor_meta: data.valorMeta, valor_atingido: data.valorAtingido,
+    data_inicial: data.dataInicial || null, data_final: data.dataFinal || null,
+    responsavel_id: data.responsavelId || null, status: data.status,
+  };
+  const { error } = ed
+    ? await supabaseClient.from('metas').update(payload).eq('id', ed)
+    : await supabaseClient.from('metas').insert(payload);
+  if (error) { showToast('Não foi possível salvar a meta: ' + error.message); return; }
+  showToast(ed ? 'Meta atualizada!' : 'Meta criada!');
   state.editing.meta = null;
-  renderAdminTabContent();
-  renderMetas();
+  await carregarMetas();
+  renderAdminTabContent(); renderMetas();
   if (state.currentView === 'metas') renderMetasDashboardView();
 }
 function editMeta(id) { state.editing.meta = id; renderAdminTabContent(); }
-function removeMeta(id) {
+async function removeMeta(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('metas').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
   state.metas = state.metas.filter(x=>x.id!==id);
   renderAdminTabContent();
   renderMetas();
@@ -382,10 +491,15 @@ function renderAdminFuncionarioMes(c) {
     <button class="admin-add-btn" onclick="submitFuncionarioMes()"><i class="fa-solid fa-plus"></i> Salvar</button>
   `;
 }
-function submitFuncionarioMes() {
-  state.funcionarioMes = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg') };
+async function submitFuncionarioMes() {
+  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg') };
+  state.funcionarioMes = data;
   renderFuncionarioMes();
   showToast('Funcionário do mês atualizado!');
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('funcionario_mes').update(data).eq('id', true);
+    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+  }
 }
 
 /* --- ANIVERSARIANTES --- */
@@ -421,17 +535,36 @@ function renderAdminAniversariantes(c) {
     `).join('')}
   `;
 }
-function submitAniversariante() {
+async function submitAniversariante() {
   const data = { nome: val('an-nome'), cargo: val('an-cargo'), data: val('an-data'), funcionarioId: val('an-funcionario') || null };
   if (!data.nome.trim()) return;
   const ed = state.editing.aniversariante;
-  if (ed) { const i = state.aniversariantes.findIndex(x=>x.id===ed); state.aniversariantes[i] = { ...data, id: ed }; showToast('Aniversariante atualizado!'); }
-  else { state.aniversariantes.push({ ...data, id: uid('n') }); showToast('Aniversariante adicionado!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.aniversariantes.findIndex(x=>x.id===ed); state.aniversariantes[i] = { ...data, id: ed }; showToast('Aniversariante atualizado!'); }
+    else { state.aniversariantes.push({ ...data, id: uid('n') }); showToast('Aniversariante adicionado!'); }
+    state.editing.aniversariante = null;
+    renderAdminTabContent(); renderAniversariantes();
+    return;
+  }
+  const payload = { nome: data.nome, cargo: data.cargo, data_aniversario: data.data, funcionario_id: data.funcionarioId };
+  const { error } = ed
+    ? await supabaseClient.from('aniversariantes').update(payload).eq('id', ed)
+    : await supabaseClient.from('aniversariantes').insert(payload);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Aniversariante atualizado!' : 'Aniversariante adicionado!');
   state.editing.aniversariante = null;
+  await carregarAniversariantes();
   renderAdminTabContent(); renderAniversariantes();
 }
 function editAniversariante(id) { state.editing.aniversariante = id; renderAdminTabContent(); }
-function removeAniversariante(id) { state.aniversariantes = state.aniversariantes.filter(x=>x.id!==id); renderAdminTabContent(); renderAniversariantes(); }
+async function removeAniversariante(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('aniversariantes').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.aniversariantes = state.aniversariantes.filter(x=>x.id!==id);
+  renderAdminTabContent(); renderAniversariantes();
+}
 
 /* --- LINKS --- */
 function renderAdminLinks(c) {
@@ -458,17 +591,35 @@ function renderAdminLinks(c) {
     `).join('')}
   `;
 }
-function submitLink() {
+async function submitLink() {
   const data = { nome: val('lk-nome'), url: normalizeUrl(val('lk-url')) };
   if (!data.nome.trim() || !data.url.trim()) return;
   const ed = state.editing.link;
-  if (ed) { const i = state.links.findIndex(x=>x.id===ed); state.links[i] = { ...data, id: ed }; showToast('Link atualizado!'); }
-  else { state.links.push({ ...data, id: uid('l') }); showToast('Link adicionado!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.links.findIndex(x=>x.id===ed); state.links[i] = { ...data, id: ed }; showToast('Link atualizado!'); }
+    else { state.links.push({ ...data, id: uid('l') }); showToast('Link adicionado!'); }
+    state.editing.link = null;
+    renderAdminTabContent(); renderLinks();
+    return;
+  }
+  const { error } = ed
+    ? await supabaseClient.from('links_uteis').update(data).eq('id', ed)
+    : await supabaseClient.from('links_uteis').insert(data);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Link atualizado!' : 'Link adicionado!');
   state.editing.link = null;
+  await carregarLinks();
   renderAdminTabContent(); renderLinks();
 }
 function editLink(id) { state.editing.link = id; renderAdminTabContent(); }
-function removeLink(id) { state.links = state.links.filter(x=>x.id!==id); renderAdminTabContent(); renderLinks(); }
+async function removeLink(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('links_uteis').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.links = state.links.filter(x=>x.id!==id);
+  renderAdminTabContent(); renderLinks();
+}
 
 /* --- FERRAMENTAS --- */
 function renderAdminFerramentas(c) {
@@ -496,17 +647,36 @@ function renderAdminFerramentas(c) {
     `).join('')}
   `;
 }
-function submitTool() {
+async function submitTool() {
   const data = { nome: val('tl-nome'), desc: val('tl-desc'), url: normalizeUrl(val('tl-url')) };
   if (!data.nome.trim()) return;
   const ed = state.editing.tool;
-  if (ed) { const i = state.tools.findIndex(x=>x.id===ed); state.tools[i] = { ...data, id: ed }; showToast('Ferramenta atualizada!'); }
-  else { state.tools.push({ ...data, id: uid('f') }); showToast('Ferramenta adicionada!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.tools.findIndex(x=>x.id===ed); state.tools[i] = { ...data, id: ed }; showToast('Ferramenta atualizada!'); }
+    else { state.tools.push({ ...data, id: uid('f') }); showToast('Ferramenta adicionada!'); }
+    state.editing.tool = null;
+    renderAdminTabContent(); renderTools();
+    return;
+  }
+  const payload = { nome: data.nome, descricao: data.desc, url: data.url };
+  const { error } = ed
+    ? await supabaseClient.from('ferramentas').update(payload).eq('id', ed)
+    : await supabaseClient.from('ferramentas').insert(payload);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Ferramenta atualizada!' : 'Ferramenta adicionada!');
   state.editing.tool = null;
+  await carregarFerramentas();
   renderAdminTabContent(); renderTools();
 }
 function editTool(id) { state.editing.tool = id; renderAdminTabContent(); }
-function removeTool(id) { state.tools = state.tools.filter(x=>x.id!==id); renderAdminTabContent(); renderTools(); }
+async function removeTool(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('ferramentas').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.tools = state.tools.filter(x=>x.id!==id);
+  renderAdminTabContent(); renderTools();
+}
 
 /* --- CLASSIFICAÇÕES DE SINALIZAÇÃO --- */
 function renderAdminClassificacoes(c) {
@@ -537,17 +707,32 @@ function renderAdminClassificacoes(c) {
     `).join('')}
   `;
 }
-function submitClassificacao() {
+async function submitClassificacao() {
   const data = { nome: val('cl-nome'), cor: val('cl-cor') };
   if (!data.nome.trim()) return;
   const ed = state.editing.classificacao;
-  if (ed) { const i = state.classificacoes.findIndex(x=>x.id===ed); state.classificacoes[i] = { ...data, id: ed }; showToast('Classificação atualizada!'); }
-  else { state.classificacoes.push({ ...data, id: uid('cl') }); showToast('Classificação adicionada!'); }
+  if (!supabaseClient) {
+    if (ed) { const i = state.classificacoes.findIndex(x=>x.id===ed); state.classificacoes[i] = { ...data, id: ed }; showToast('Classificação atualizada!'); }
+    else { state.classificacoes.push({ ...data, id: uid('cl') }); showToast('Classificação adicionada!'); }
+    state.editing.classificacao = null;
+    renderAdminTabContent();
+    return;
+  }
+  const { error } = ed
+    ? await supabaseClient.from('classificacoes_sinalizacao').update(data).eq('id', ed)
+    : await supabaseClient.from('classificacoes_sinalizacao').insert(data);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Classificação atualizada!' : 'Classificação adicionada!');
   state.editing.classificacao = null;
+  await carregarClassificacoes();
   renderAdminTabContent();
 }
 function editClassificacao(id) { state.editing.classificacao = id; renderAdminTabContent(); }
-function removeClassificacao(id) {
+async function removeClassificacao(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('classificacoes_sinalizacao').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
   state.classificacoes = state.classificacoes.filter(x=>x.id!==id);
   renderAdminTabContent();
 }
@@ -602,12 +787,22 @@ function renderAdminPermissoes(c) {
     `).join('')}
   `;
 }
-function togglePermissaoSetor(setor, key, checked) {
+const PERMISSAO_SETOR_COLUNA = {
+  acessoAcordos: 'acesso_acordos', acessoJuridico: 'acesso_juridico', acessoRH: 'acesso_rh',
+  acessoFinanceiro: 'acesso_financeiro', verMetasGeral: 'ver_metas_geral',
+  verSinalizacoesTodas: 'ver_sinalizacoes_todas', verFuncionariosTodos: 'ver_funcionarios_todos',
+};
+async function togglePermissaoSetor(setor, key, checked) {
   if (!state.permissoesSetor[setor]) state.permissoesSetor[setor] = {};
   state.permissoesSetor[setor][key] = checked;
   showToast('Permissões atualizadas!');
+  if (supabaseClient) {
+    const coluna = PERMISSAO_SETOR_COLUNA[key];
+    const { error } = await supabaseClient.from('permissoes_setor').update({ [coluna]: checked }).eq('setor', setor);
+    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+  }
 }
-function toggleGestorSetor(setor, employeeId, checked) {
+async function toggleGestorSetor(setor, employeeId, checked) {
   if (!state.gestoresSetor[setor]) state.gestoresSetor[setor] = [];
   const lista = state.gestoresSetor[setor];
   const i = lista.indexOf(employeeId);
@@ -616,6 +811,12 @@ function toggleGestorSetor(setor, employeeId, checked) {
   showToast('Gestores do setor atualizados!');
   renderMetas();
   if (state.currentView === 'metas') renderMetasDashboardView();
+  if (supabaseClient) {
+    const { error } = checked
+      ? await supabaseClient.from('gestores_setor').insert({ setor, funcionario_id: employeeId })
+      : await supabaseClient.from('gestores_setor').delete().eq('setor', setor).eq('funcionario_id', employeeId);
+    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+  }
 }
 
 
@@ -774,7 +975,7 @@ function renderAdminCursos(c) {
     `).join('')}
   `;
 }
-function submitCurso() {
+async function submitCurso() {
   const ed = state.editing.curso;
   const fotoTemp = state.editing.speakerFotoTemp;
   const data = {
@@ -786,33 +987,68 @@ function submitCurso() {
     },
   };
   if (!data.nome.trim()) { showToast('Informe um nome para o curso.'); return; }
+  if (!supabaseClient) {
+    if (ed) {
+      const i = state.cursos.findIndex(x=>x.id===ed);
+      state.cursos[i] = { ...state.cursos[i], ...data };
+      showToast('Curso atualizado!');
+    } else {
+      const maiorOrdem = state.cursos.reduce((m,x)=>Math.max(m,x.ordem||0),0);
+      state.cursos.push({ id: uid('crs'), ordem: maiorOrdem+1, aulas: [], materiaisExtras: [], ...data });
+      showToast('Curso criado!');
+    }
+    state.editing.curso = null;
+    state.editing.speakerFotoTemp = undefined;
+    renderAdminTabContent();
+    return;
+  }
+  const payload = {
+    nome: data.nome, tema: data.tema, status: data.status, descricao: data.descricao,
+    palestrante_nome: data.palestrante.nome, palestrante_cargo: data.palestrante.cargo,
+    palestrante_empresa: data.palestrante.empresa, palestrante_foto_url: data.palestrante.foto,
+    palestrante_linkedin: data.palestrante.linkedin, palestrante_instagram: data.palestrante.instagram,
+    palestrante_website: data.palestrante.website, palestrante_contato: data.palestrante.contato,
+  };
   if (ed) {
-    const i = state.cursos.findIndex(x=>x.id===ed);
-    state.cursos[i] = { ...state.cursos[i], ...data };
+    const { error } = await supabaseClient.from('cursos').update(payload).eq('id', ed);
+    if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
     showToast('Curso atualizado!');
   } else {
     const maiorOrdem = state.cursos.reduce((m,x)=>Math.max(m,x.ordem||0),0);
-    state.cursos.push({ id: uid('crs'), ordem: maiorOrdem+1, aulas: [], materiaisExtras: [], ...data });
+    const { error } = await supabaseClient.from('cursos').insert({ ...payload, ordem: maiorOrdem + 1 });
+    if (error) { showToast('Não foi possível criar o curso: ' + error.message); return; }
     showToast('Curso criado!');
   }
   state.editing.curso = null;
   state.editing.speakerFotoTemp = undefined;
+  await carregarCursos();
   renderAdminTabContent();
 }
 function editCurso(id) { state.editing.curso = id; state.editing.speakerFotoTemp = undefined; renderAdminTabContent(); }
 function cancelEditCurso() { state.editing.curso = null; state.editing.speakerFotoTemp = undefined; renderAdminTabContent(); }
-function removeCurso(id) {
+async function removeCurso(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('cursos').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
   state.cursos = state.cursos.filter(x=>x.id!==id);
   Object.values(state.progressoCursos).forEach(porCurso => { delete porCurso[id]; });
   renderAdminTabContent();
 }
-function moverCursoOrdem(id, dir) {
+async function moverCursoOrdem(id, dir) {
   const ordenados = [...state.cursos].sort((a,b)=>a.ordem-b.ordem);
   const i = ordenados.findIndex(x=>x.id===id);
   const j = i + dir;
   if (j < 0 || j >= ordenados.length) return;
   [ordenados[i].ordem, ordenados[j].ordem] = [ordenados[j].ordem, ordenados[i].ordem];
   renderAdminTabContent();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('cursos').upsert([
+      { id: ordenados[i].id, ordem: ordenados[i].ordem },
+      { id: ordenados[j].id, ordem: ordenados[j].ordem },
+    ]);
+    if (error) showToast('Não foi possível salvar a ordem: ' + error.message);
+  }
 }
 function gerenciarAulasCurso(id) { state.adminCursoGerenciandoId = id; state.editing.aula = null; renderAdminTabContent(); }
 function voltarListaCursosAdmin() { state.adminCursoGerenciandoId = null; renderAdminTabContent(); }
@@ -890,7 +1126,7 @@ function onAulaTipoChange(tipo) {
   const df = document.getElementById('aula-duracao-field');
   if (df) df.style.display = tipo === 'video' ? 'flex' : 'none';
 }
-function submitAula() {
+async function submitAula() {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   if (!curso) return;
   const titulo = val('aula-titulo');
@@ -898,36 +1134,60 @@ function submitAula() {
   const tipo = val('aula-tipo');
   const arquivoTemp = state.editing.aulaArquivoTemp;
   const url = arquivoTemp ? arquivoTemp.url : val('aula-url');
-  const duracaoMin = tipo === 'video' ? (Number(val('aula-duracao')) || undefined) : undefined;
+  const duracaoMin = tipo === 'video' ? (Number(val('aula-duracao')) || null) : null;
   const ed = state.editing.aula;
+  if (!supabaseClient) {
+    if (ed) {
+      const i = curso.aulas.findIndex(a=>a.id===ed);
+      curso.aulas[i] = { ...curso.aulas[i], titulo, tipo, url, duracaoMin };
+      showToast('Aula atualizada!');
+    } else {
+      const maiorOrdem = curso.aulas.reduce((m,a)=>Math.max(m,a.ordem||0),0);
+      curso.aulas.push({ id: uid('aula'), ordem: maiorOrdem+1, titulo, tipo, url, duracaoMin });
+      showToast('Aula adicionada!');
+    }
+    state.editing.aula = null;
+    state.editing.aulaArquivoTemp = undefined;
+    renderAdminTabContent();
+    return;
+  }
+  const payload = { titulo, tipo, url: url || null, duracao_min: duracaoMin };
   if (ed) {
-    const i = curso.aulas.findIndex(a=>a.id===ed);
-    curso.aulas[i] = { ...curso.aulas[i], titulo, tipo, url, duracaoMin };
+    const { error } = await supabaseClient.from('aulas').update(payload).eq('id', ed);
+    if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
     showToast('Aula atualizada!');
   } else {
     const maiorOrdem = curso.aulas.reduce((m,a)=>Math.max(m,a.ordem||0),0);
-    curso.aulas.push({ id: uid('aula'), ordem: maiorOrdem+1, titulo, tipo, url, duracaoMin });
+    const { error } = await supabaseClient.from('aulas').insert({ ...payload, curso_id: curso.id, ordem: maiorOrdem + 1 });
+    if (error) { showToast('Não foi possível adicionar a aula: ' + error.message); return; }
     showToast('Aula adicionada!');
   }
   state.editing.aula = null;
   state.editing.aulaArquivoTemp = undefined;
+  await carregarCursos();
   renderAdminTabContent();
 }
 function editAula(id) {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   const aula = curso && curso.aulas.find(a=>a.id===id);
   state.editing.aula = id;
-  state.editing.aulaArquivoTemp = aula && aula.url && aula.url.startsWith('data:') ? { nome: aula.titulo, url: aula.url } : undefined;
+  state.editing.aulaArquivoTemp = aula && aula.url ? { nome: aula.titulo, url: aula.url } : undefined;
   renderAdminTabContent();
 }
 function cancelEditAula() { state.editing.aula = null; state.editing.aulaArquivoTemp = undefined; renderAdminTabContent(); }
-function removeAula(id) {
+async function removeAula(id) {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   if (!curso) return;
-  curso.aulas = curso.aulas.filter(a=>a.id!==id);
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('aulas').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+    await carregarCursos();
+  } else {
+    curso.aulas = curso.aulas.filter(a=>a.id!==id);
+  }
   renderAdminTabContent();
 }
-function moverAulaOrdem(id, dir) {
+async function moverAulaOrdem(id, dir) {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   if (!curso) return;
   const ordenados = [...curso.aulas].sort((a,b)=>a.ordem-b.ordem);
@@ -936,23 +1196,45 @@ function moverAulaOrdem(id, dir) {
   if (j < 0 || j >= ordenados.length) return;
   [ordenados[i].ordem, ordenados[j].ordem] = [ordenados[j].ordem, ordenados[i].ordem];
   renderAdminTabContent();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('aulas').upsert([
+      { id: ordenados[i].id, curso_id: curso.id, titulo: ordenados[i].titulo, tipo: ordenados[i].tipo, ordem: ordenados[i].ordem },
+      { id: ordenados[j].id, curso_id: curso.id, titulo: ordenados[j].titulo, tipo: ordenados[j].tipo, ordem: ordenados[j].ordem },
+    ]);
+    if (error) showToast('Não foi possível salvar a ordem: ' + error.message);
+  }
 }
-function submitMaterial() {
+async function submitMaterial() {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   if (!curso) return;
   const nome = val('material-nome');
   const arquivoTemp = state.editing.materialArquivoTemp;
   if (!nome.trim()) { showToast('Informe um nome para o material.'); return; }
   if (!arquivoTemp) { showToast('Envie um arquivo para o material.'); return; }
-  curso.materiaisExtras.push({ id: uid('mat'), nome, tipo: 'arquivo', url: arquivoTemp.url });
+  if (!supabaseClient) {
+    curso.materiaisExtras.push({ id: uid('mat'), nome, tipo: 'arquivo', url: arquivoTemp.url });
+    state.editing.materialArquivoTemp = undefined;
+    renderAdminTabContent();
+    showToast('Material adicionado!');
+    return;
+  }
+  const { error } = await supabaseClient.from('materiais_extras').insert({ curso_id: curso.id, nome, url: arquivoTemp.url });
+  if (error) { showToast('Não foi possível adicionar o material: ' + error.message); return; }
   state.editing.materialArquivoTemp = undefined;
+  await carregarCursos();
   renderAdminTabContent();
   showToast('Material adicionado!');
 }
-function removeMaterial(id) {
+async function removeMaterial(id) {
   const curso = state.cursos.find(x => x.id === state.adminCursoGerenciandoId);
   if (!curso) return;
-  curso.materiaisExtras = curso.materiaisExtras.filter(m=>m.id!==id);
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('materiais_extras').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+    await carregarCursos();
+  } else {
+    curso.materiaisExtras = curso.materiaisExtras.filter(m=>m.id!==id);
+  }
   renderAdminTabContent();
 }
 function triggerCursoUpload(target) {
@@ -1023,18 +1305,22 @@ function renderAdminParabens(c) {
 function renderAdminManutencaoIA(c) {
   c.innerHTML = `
     <div class="admin-list-meta" style="margin-bottom:14px;">
-      Todo relato enviado em "Reportar Erro" é encaminhado automaticamente para um backend próprio, que repassa o contexto completo (usuário, setor, módulo, URL, logs do console, erros de JS, anexos) para a API da Anthropic (Claude) analisar — a chave de API fica só no servidor, nunca no navegador. Aqui você consulta o histórico completo dessas análises.
+      Todo relato enviado em "Reportar Erro" é encaminhado automaticamente para a Edge Function <span class="mono">analisar-erro-ia</span> do Supabase, que repassa o contexto completo (usuário, setor, módulo, URL, logs do console, erros de JS, anexos) para a API da Anthropic (Claude) analisar — a chave de API fica só nos secrets do projeto, nunca no navegador. Aqui você consulta o histórico completo dessas análises.
     </div>
-    <div class="card" style="padding:16px 18px; margin-bottom:18px;">
-      <div style="display:grid; grid-template-columns:2fr 2fr auto; gap:10px; align-items:end;">
-        <div class="form-field" style="margin-bottom:0;"><label>URL do backend de manutenção</label><input id="ia-backend-url" value="${esc(state.iaBackendUrl)}" placeholder="http://localhost:3001"></div>
-        <div class="form-field" style="margin-bottom:0;"><label>Token de administrador</label><input id="ia-admin-token" type="password" value="${esc(state.iaAdminToken)}" placeholder="mesmo valor de ADMIN_API_TOKEN no .env"></div>
-        <button class="admin-add-btn" onclick="carregarHistoricoIA()"><i class="fa-solid fa-arrows-rotate"></i> Consultar histórico</button>
+    ${supabaseClient ? `
+      <div style="margin-bottom:14px;"><button class="admin-add-btn" onclick="carregarHistoricoIA()"><i class="fa-solid fa-arrows-rotate"></i> Atualizar histórico</button></div>
+    ` : `
+      <div class="card" style="padding:16px 18px; margin-bottom:18px;">
+        <div style="display:grid; grid-template-columns:2fr 2fr auto; gap:10px; align-items:end;">
+          <div class="form-field" style="margin-bottom:0;"><label>URL do backend de manutenção</label><input id="ia-backend-url" value="${esc(state.iaBackendUrl)}" placeholder="http://localhost:3001"></div>
+          <div class="form-field" style="margin-bottom:0;"><label>Token de administrador</label><input id="ia-admin-token" type="password" value="${esc(state.iaAdminToken)}" placeholder="mesmo valor de ADMIN_API_TOKEN no .env"></div>
+          <button class="admin-add-btn" onclick="carregarHistoricoIA()"><i class="fa-solid fa-arrows-rotate"></i> Consultar histórico</button>
+        </div>
       </div>
-      <div style="font-size:10.5px; color:var(--text-3); margin-top:10px;"><i class="fa-solid fa-circle-info"></i> O token é o mesmo definido em <span class="mono">ADMIN_API_TOKEN</span> no arquivo <span class="mono">.env</span> do backend (ver README do projeto <span class="mono">ia-manutencao-backend</span>). Sem ele, o servidor recusa o pedido — a validação acontece no back-end, não só nesta tela.</div>
-    </div>
+    `}
     <div id="iaHistoricoContainer">${renderIaHistoricoConteudo()}</div>
   `;
+  if (supabaseClient && state.iaHistoricoStatus === null) carregarHistoricoIA();
 }
 function renderIaHistoricoConteudo() {
   const status = state.iaHistoricoStatus;
@@ -1056,10 +1342,8 @@ function renderIaHistoricoConteudo() {
   }
   return lista.map(item => {
     const r = item.relato, a = item.analise;
-    let arquivos = [];
-    try { arquivos = JSON.parse(r.anexos || '[]'); } catch(e) {}
-    let arquivosAfetados = [];
-    try { arquivosAfetados = a ? JSON.parse(a.arquivos_afetados || '[]') : []; } catch(e) {}
+    const arquivos = Array.isArray(r.anexos) ? r.anexos : (() => { try { return JSON.parse(r.anexos || '[]'); } catch(e) { return []; } })();
+    const arquivosAfetados = Array.isArray(a && a.arquivos_afetados) ? a.arquivos_afetados : (() => { try { return a ? JSON.parse(a.arquivos_afetados || '[]') : []; } catch(e) { return []; } })();
     return `
     <div class="card" style="padding:18px 20px; margin-bottom:14px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
@@ -1104,10 +1388,25 @@ function renderIaHistoricoConteudo() {
   `;}).join('');
 }
 async function carregarHistoricoIA() {
+  state.iaHistoricoStatus = 'carregando';
+  const container = document.getElementById('iaHistoricoContainer');
+  if (container) container.innerHTML = renderIaHistoricoConteudo();
+  if (supabaseClient) {
+    const { data, error } = await supabaseClient
+      .from('analises_ia')
+      .select('*, bug_reports(*)')
+      .order('criado_em', { ascending: false });
+    if (error) { state.iaHistoricoStatus = error.code === '42501' ? 'erro_auth' : 'offline'; }
+    else {
+      state.iaHistorico = (data || []).map(a => ({ relato: a.bug_reports, analise: a }));
+      state.iaHistoricoStatus = 'ok';
+    }
+    const c2 = document.getElementById('iaHistoricoContainer');
+    if (c2) c2.innerHTML = renderIaHistoricoConteudo();
+    return;
+  }
   state.iaBackendUrl = val('ia-backend-url').trim() || state.iaBackendUrl;
   state.iaAdminToken = val('ia-admin-token').trim();
-  state.iaHistoricoStatus = 'carregando';
-  document.getElementById('iaHistoricoContainer').innerHTML = renderIaHistoricoConteudo();
   try {
     const resp = await fetch(`${state.iaBackendUrl}/api/manutencao/relatos`, {
       headers: { 'Authorization': `Bearer ${state.iaAdminToken}` },
@@ -1121,8 +1420,8 @@ async function carregarHistoricoIA() {
   } catch (err) {
     state.iaHistoricoStatus = 'offline';
   }
-  const container = document.getElementById('iaHistoricoContainer');
-  if (container) container.innerHTML = renderIaHistoricoConteudo();
+  const c3 = document.getElementById('iaHistoricoContainer');
+  if (c3) c3.innerHTML = renderIaHistoricoConteudo();
 }
 
 /* --- CONEXÃO COM O SUPABASE (admin) --- */

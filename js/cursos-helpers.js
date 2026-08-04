@@ -23,7 +23,7 @@ function garantirProgressoIniciado(cursoId) {
     };
   }
 }
-function toggleAulaConcluida(cursoId, aulaId) {
+async function toggleAulaConcluida(cursoId, aulaId) {
   const emp = getEffectiveEmployee();
   if (!emp) return;
   garantirProgressoIniciado(cursoId);
@@ -31,12 +31,22 @@ function toggleAulaConcluida(cursoId, aulaId) {
   if (!curso) return;
   const progresso = state.progressoCursos[emp.id][cursoId];
   const i = progresso.aulasConcluidas.indexOf(aulaId);
-  if (i === -1) progresso.aulasConcluidas.push(aulaId);
+  const marcando = i === -1;
+  if (marcando) progresso.aulasConcluidas.push(aulaId);
   else progresso.aulasConcluidas.splice(i, 1);
   const total = totalAulas(curso) || 1;
   progresso.percentual = Math.round((progresso.aulasConcluidas.length / total) * 100);
   progresso.dataConclusao = progresso.percentual >= 100 ? new Date().toISOString() : null;
   renderCursoDetalhe();
+  if (supabaseClient) {
+    const query = marcando
+      ? supabaseClient.from('aula_conclusoes').insert({ funcionario_id: emp.id, aula_id: aulaId })
+      : supabaseClient.from('aula_conclusoes').delete().eq('funcionario_id', emp.id).eq('aula_id', aulaId);
+    const { error } = await query;
+    if (error) { console.error('Erro ao salvar progresso da aula:', error.message); return; }
+    await carregarProgressoCursos();
+    renderCursoDetalhe();
+  }
 }
 function toYoutubeEmbed(url) {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);

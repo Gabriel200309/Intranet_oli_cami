@@ -20,16 +20,26 @@ function jaEnviouParabens(aniversarianteId) {
   if (!emp) return false;
   return state.parabens.some(p => p.remetenteId === emp.id && p.aniversarianteId === aniversarianteId);
 }
-function enviarParabens(aniversarianteId) {
+async function enviarParabens(aniversarianteId) {
   const emp = getEffectiveEmployee();
   if (!emp) { showToast('Faça login para enviar parabéns.'); return; }
   if (!aniversarianteId) { showToast('Este aniversariante não está vinculado a um funcionário cadastrado.'); return; }
   if (aniversarianteId === emp.id) { showToast('Você não pode enviar parabéns para si mesmo.'); return; }
   if (jaEnviouParabens(aniversarianteId)) { showToast('Você já enviou parabéns para essa pessoa.'); return; }
-  const agora = new Date().toISOString();
-  state.parabens.push({ id: uid('pb'), aniversarianteId, remetenteId: emp.id, data: agora });
-  state.notificacoes.push({ id: uid('ntf'), destinatarioId: aniversarianteId, remetenteId: emp.id, tipo: 'parabens', data: agora, lida: false });
   const destinatario = funcionarioPorId(aniversarianteId);
+  if (!supabaseClient) {
+    const agora = new Date().toISOString();
+    state.parabens.push({ id: uid('pb'), aniversarianteId, remetenteId: emp.id, data: agora });
+    state.notificacoes.push({ id: uid('ntf'), destinatarioId: aniversarianteId, remetenteId: emp.id, tipo: 'parabens', data: agora, lida: false });
+  } else {
+    const { data, error } = await supabaseClient.from('parabens').insert({ aniversariante_id: aniversarianteId, remetente_id: emp.id }).select().single();
+    if (error) {
+      if (error.code === '23505') showToast('Você já enviou parabéns para essa pessoa.');
+      else showToast('Não foi possível enviar os parabéns: ' + error.message);
+      return;
+    }
+    state.parabens.push({ id: data.id, aniversarianteId: data.aniversariante_id, remetenteId: data.remetente_id, data: data.enviado_em });
+  }
   showToast(`🎉 Parabéns enviados para ${destinatario ? destinatario.nome.split(' ')[0] : 'colaborador'}!`);
   renderAniversariantes();
   renderHeader();
@@ -41,17 +51,26 @@ function notificacoesDoUsuario() {
   return state.notificacoes.filter(n => n.destinatarioId === emp.id).sort((a,b) => new Date(b.data) - new Date(a.data));
 }
 function notificacoesNaoLidasCount() { return notificacoesDoUsuario().filter(n => !n.lida).length; }
-function marcarNotificacaoLida(id) {
+async function marcarNotificacaoLida(id) {
   const n = state.notificacoes.find(x => x.id === id);
   if (n) n.lida = true;
   renderHeader();
   if (state.currentView === 'notificacoes') renderNotificacoesView();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('notificacoes').update({ lida: true }).eq('id', id);
+    if (error) console.error('Erro ao marcar notificação como lida:', error.message);
+  }
 }
-function marcarTodasNotificacoesLidas() {
-  notificacoesDoUsuario().forEach(n => n.lida = true);
+async function marcarTodasNotificacoesLidas() {
+  const naoLidas = notificacoesDoUsuario().filter(n => !n.lida);
+  naoLidas.forEach(n => n.lida = true);
   renderHeader();
   if (state.notifOpen) renderNotifDropdown();
   if (state.currentView === 'notificacoes') renderNotificacoesView();
+  if (supabaseClient && naoLidas.length) {
+    const { error } = await supabaseClient.from('notificacoes').update({ lida: true }).in('id', naoLidas.map(n => n.id));
+    if (error) console.error('Erro ao marcar notificações como lidas:', error.message);
+  }
 }
 function textoNotificacao(n) {
   const remetente = funcionarioPorId(n.remetenteId);
@@ -66,11 +85,15 @@ function abrirPerfilFuncionario(id) {
   renderModal();
 }
 
-function setViewingAs(id) {
+async function setViewingAs(id) {
   if (!isAdmin()) { showToast('Apenas administradores podem simular a visão de outro colaborador.'); return; }
   state.viewingAsId = id || null;
   renderHeader();
   renderContentView();
+  if (supabaseClient) {
+    await Promise.all([carregarProgressoCursos(), carregarNotificacoes(), carregarParabens()]);
+    renderContentView();
+  }
 }
 
 

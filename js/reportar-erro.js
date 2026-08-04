@@ -21,7 +21,7 @@ Descrição:
 ${registro.descricao}`;
   return { assunto, corpo };
 }
-function submitBugReport(ev) {
+async function submitBugReport(ev) {
   ev.preventDefault();
   const titulo = val('bg-titulo'), area = val('bg-area'), prioridade = val('bg-prioridade'),
         descricao = val('bg-descricao'), nome = val('bg-nome'), email = val('bg-email');
@@ -44,17 +44,61 @@ function submitBugReport(ev) {
   state.editing.bugAnexos = [];
   showToast('Relato registrado! Enviando para análise automática da IA de manutenção...');
   renderReportarErroView();
-  enviarRelatoParaIA(registro);
+  if (supabaseClient) await enviarRelatoParaIASupabase(registro);
+  else await enviarRelatoParaIA(registro);
 }
 
 /* ================= INTEGRAÇÃO COM O SISTEMA DE MANUTENÇÃO INTELIGENTE (IA) =================
    Sempre que um relato é registrado, o front-end envia automaticamente todo
    o contexto técnico disponível (usuário, setor, módulo, URL, logs do
-   console, erros de JS/stack trace, anexos) para o BACKEND — nunca para a
-   API da Anthropic diretamente. A chave de API do Claude só existe no
-   servidor (ver /ia-manutencao-backend), então o front-end jamais a
-   manipula. Se o backend não estiver acessível, isso é comunicado com
+   console, erros de JS/stack trace, anexos) para a Edge Function
+   "analisar-erro-ia" do Supabase — nunca para a API da Anthropic
+   diretamente. A chave de API do Claude só existe nos secrets do projeto
+   Supabase, então o front-end jamais a manipula. Se a function não estiver
+   publicada ainda (supabase functions deploy), isso é comunicado com
    clareza — o app nunca finge uma resposta de IA no próprio navegador. */
+async function enviarRelatoParaIASupabase(registro) {
+  const emp = getEffectiveEmployee();
+  const payload = {
+    nomeUsuario: registro.nome || (emp ? emp.nome : 'Não informado'),
+    setor: registro.setor,
+    sistemaModulo: registro.area,
+    titulo: registro.titulo,
+    descricao: registro.descricao,
+    prioridade: registro.prioridade,
+    dataHora: registro.dataIso,
+    urlPagina: registro.urlPagina,
+    consoleLogs: state.consoleLogBuffer.slice(-30),
+    jsErrors: state.jsErrorBuffer.slice(-10),
+    stackTrace: state.jsErrorBuffer.length ? state.jsErrorBuffer[state.jsErrorBuffer.length - 1].stack : '',
+    requestInfo: null,
+    anexos: registro.anexos.map(a => ({ nome: a.nome, tipo: a.tipo, tamanhoBytes: a.tamanhoBytes })),
+  };
+  try {
+    const { data: sessao } = await supabaseClient.auth.getSession();
+    const token = sessao && sessao.session && sessao.session.access_token;
+    if (!token) throw new Error('Sessão não encontrada.');
+    const resp = await fetch(`${window.SUPABASE_URL}/functions/v1/analisar-erro-ia`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data) throw new Error((data && data.erro) || `Resposta inválida (status ${resp.status})`);
+    registro.iaStatus = data.status || 'erro_analise';
+    registro.iaRelatoId = data.relatoId || null;
+    registro.iaResumo = data.resumo || null;
+    showToast(registro.iaStatus === 'analisado'
+      ? '🤖 A IA de manutenção analisou o relato!'
+      : (data.aviso || 'Relato salvo, mas a análise automática falhou.'));
+  } catch (err) {
+    registro.iaStatus = 'offline';
+    showToast('Não foi possível conectar à Central de Manutenção IA (a Edge Function "analisar-erro-ia" pode não estar publicada ainda). O relato ficou salvo só nesta sessão.');
+  }
+  if (state.currentView === 'reportarErro') renderReportarErroView();
+}
+/* Modo local (sem Supabase configurado): mantém o comportamento original
+   do protótipo, tentando um backend Node à parte (ia-manutencao-backend). */
 async function enviarRelatoParaIA(registro) {
   const emp = getEffectiveEmployee();
   const payload = {
@@ -68,7 +112,7 @@ async function enviarRelatoParaIA(registro) {
     consoleLogs: state.consoleLogBuffer.slice(-30),
     jsErrors: state.jsErrorBuffer.slice(-10),
     stackTrace: state.jsErrorBuffer.length ? state.jsErrorBuffer[state.jsErrorBuffer.length - 1].stack : '',
-    requestInfo: null, // este protótipo não faz chamadas de API própria para inspecionar
+    requestInfo: null,
     anexos: registro.anexos.map(a => ({ nome: a.nome, tipo: a.tipo, tamanhoBytes: a.tamanhoBytes })),
   };
   try {
@@ -91,12 +135,13 @@ async function enviarRelatoParaIA(registro) {
   }
   if (state.currentView === 'reportarErro') renderReportarErroView();
 }
-function reenviarRelatoParaIA(id) {
+async function reenviarRelatoParaIA(id) {
   const registro = state.bugReports.find(b => b.id === id);
   if (!registro) return;
   registro.iaStatus = 'enviando';
   renderReportarErroView();
-  enviarRelatoParaIA(registro);
+  if (supabaseClient) await enviarRelatoParaIASupabase(registro);
+  else await enviarRelatoParaIA(registro);
 }
 
 function abrirEnvioBugReport(id, canal) {
