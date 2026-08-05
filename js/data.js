@@ -40,6 +40,7 @@ const NAV_EXTRA = [
   { icon: "bell", label: "Notificações", view: "notificacoes" },
   { icon: "flag", label: "Sinalizações de Colaboradores", view: "sinalizacoes" },
   { icon: "bug", label: "Reportar Erro", view: "reportarErro" },
+  { icon: "help", label: "Manual do Sistema", view: "manual" },
 ];
 
 const NOTIFICACOES = [

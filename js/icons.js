@@ -6,5 +6,6 @@ const ICONS = {
   calc: 'fa-calculator', chat: 'fa-comments', flag: 'fa-flag', bug: 'fa-bug',
   send: 'fa-paper-plane', check: 'fa-circle-check', clock: 'fa-clock', trash: 'fa-trash',
   target: 'fa-bullseye', chart: 'fa-chart-column', bell: 'fa-bell', cake: 'fa-cake-candles',
+  help: 'fa-circle-question',
 };
 function icon(name, extra) { return `<i class="fa-solid ${ICONS[name] || 'fa-circle'} ${extra||''}"></i>`; }

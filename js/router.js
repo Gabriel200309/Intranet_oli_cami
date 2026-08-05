@@ -465,6 +465,7 @@ function renderContentView() {
   else if (v === "notificacoes") renderNotificacoesView();
   else if (v === "sinalizacoes") renderSinalizacoesView();
   else if (v === "reportarErro") renderReportarErroView();
+  else if (v === "manual") renderManualView();
   else if (typeof v === "string" && v.indexOf("nav_") === 0) renderNavSectionView(v);
   else renderDashboardView();
   // anima a troca de seção suavemente (reinicia a animação a cada navegação)
