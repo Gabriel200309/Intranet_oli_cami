@@ -1,6 +1,9 @@
 # Segredos de Edge Functions
 supabase/functions/**/.env
 
+# Cache local do Supabase CLI (gerado por "supabase link")
+supabase/.temp/
+
 # Documentos com credenciais — nunca versionar
 Logins e senhas Oliveira e Camilo intranet.docx
 

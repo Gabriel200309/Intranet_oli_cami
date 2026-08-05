@@ -4,12 +4,9 @@ Intranet interna do escritório: painéis por setor, avisos, metas, cursos/ofici
 
 Aplicação client-side em HTML/CSS/JavaScript puro (sem build, sem framework) que roda direto no navegador, com [Supabase](https://supabase.com) como backend (auth, banco, Storage, Realtime e a Edge Function de análise de erros por IA). Login, funcionários, avisos, audiências, metas, cursos/aulas/materiais, aniversariantes, parabéns, notificações, sinalizações, links, ferramentas, classificações e permissões por setor gravam direto nas tabelas do Supabase — sem `supabase-config.js` preenchido, o portal ainda funciona com dados de exemplo locais (útil para prototipagem), só não persiste nada. Detalhes do mapeamento tela→tabela em [docs/GUIA_MIGRACAO_FRONTEND.md](docs/GUIA_MIGRACAO_FRONTEND.md).
 
-**Passos manuais que ainda faltam no painel do Supabase** (não dá para automatizar via chave anon):
-- Criar o bucket **Storage → New bucket → `cursos`** (público) para upload de vídeos/PDFs/fotos dos cursos.
-- Criar o bucket **Storage → New bucket → `avatares`** (público) para a foto dos colaboradores.
-- Aplicar a migration nova, `supabase/migrations/0010_funcionario_mes_foto.sql` (cole no SQL Editor se o projeto já estava rodando as migrations anteriores).
-- Publicar a Edge Function `analisar-erro-ia` (`supabase functions deploy analisar-erro-ia`) e configurar `ANTHROPIC_API_KEY` nos secrets, para a análise automática de erros funcionar (sem isso, "Reportar Erro" continua salvando o relato, só sem a análise por IA).
-- Publicar a Edge Function `criar-funcionario` (`supabase functions deploy criar-funcionario`) — sem isso, o cadastro de novos colaboradores em Administração → Funcionários não funciona (ela cria o login e o cadastro numa só chamada; não precisa de secret extra, só das variáveis padrão do projeto).
+Migrations, buckets de Storage (`cursos`, `avatares`) e as Edge Functions (`analisar-erro-ia`, `criar-funcionario`) já estão aplicados/publicados no projeto Supabase real. O único passo manual que sobra:
+
+- **Configurar `ANTHROPIC_API_KEY` nos secrets** (`supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`) para a análise automática de erros usar o Claude de verdade — sem isso, "Reportar Erro" continua salvando o relato normalmente, só a análise fica em modo demonstração (a Edge Function avisa isso na própria resposta).
 
 ## Como rodar localmente
 
