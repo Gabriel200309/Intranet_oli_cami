@@ -15,6 +15,11 @@ function tempoRelativo(iso) {
   return `há ${d} dia${d===1?'':'s'}`;
 }
 function funcionarioPorId(id) { return state.employees.find(e => e.id === id); }
+function funcionarioPorNome(nome) {
+  if (!nome) return null;
+  const alvo = nome.trim().toLowerCase();
+  return state.employees.find(e => e.nome.trim().toLowerCase() === alvo) || null;
+}
 /* Aniversariantes do mês, calculados direto da data de nascimento de cada
    funcionário (funcionarios.nascimento) — atualiza sozinho conforme o mês
    muda, sem precisar de cadastro manual separado. Ordenado por dia, com

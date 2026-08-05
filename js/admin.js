@@ -666,8 +666,14 @@ function preencherFuncionarioMesDoSelecionado(id) {
 }
 async function submitFuncionarioMes() {
   const fotoUrl = state.editing.funcionarioMesFotoTemp !== undefined ? state.editing.funcionarioMesFotoTemp : state.funcionarioMes.foto_url;
-  const funcionarioId = state.editing.funcionarioMesIdTemp !== undefined ? state.editing.funcionarioMesIdTemp : state.funcionarioMes.funcionarioId;
-  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg'), foto_url: fotoUrl || null, funcionarioId: funcionarioId || null };
+  const nomeDigitado = val('fm-nome');
+  // Se ninguém mexeu no seletor "Selecionar funcionário" nesta edição, tenta
+  // achar o vínculo pelo nome mesmo assim (ex.: admin só editou o texto) —
+  // evita salvar sem vínculo por engano e o botão Parabenizar não funcionar.
+  const funcionarioId = state.editing.funcionarioMesIdTemp !== undefined
+    ? state.editing.funcionarioMesIdTemp
+    : (state.funcionarioMes.funcionarioId || (funcionarioPorNome(nomeDigitado) || {}).id || null);
+  const data = { nome: nomeDigitado, cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg'), foto_url: fotoUrl || null, funcionarioId: funcionarioId || null };
   state.funcionarioMes = data;
   state.editing.funcionarioMesFotoTemp = undefined;
   state.editing.funcionarioMesIdTemp = undefined;
