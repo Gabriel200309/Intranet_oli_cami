@@ -5,6 +5,7 @@
    na seção de Administração > Classificações de Sinalização. */
 function toggleNovaSinalizacao() { state.novaSinalizacao = !state.novaSinalizacao; renderSinalizacoesView(); }
 async function submitSinalizacao() {
+  if (!isAdmin()) { showToast('Só administradores podem registrar sinalizações.'); return; }
   const colaboradorId = val('sn-colaborador'), titulo = val('sn-titulo'), setor = val('sn-setor'), classificacaoId = val('sn-classificacao'), descricao = val('sn-descricao');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!titulo.trim() || !colaboradorEmp) { showToast('Informe ao menos o título e o colaborador sinalizado.'); return; }
@@ -56,23 +57,28 @@ async function removerSinalizacao(id) {
 }
 function renderSinalizacoesView() {
   const emp = getEffectiveEmployee();
-  const podeVerTodas = hasPermission('verSinalizacoesTodas');
-  const listaBase = podeVerTodas ? state.sinalizacoes : state.sinalizacoes.filter(s => emp && s.setor === emp.setor);
+  const podeVerTodas = isAdmin() || hasPermission('verSinalizacoesTodas');
+  // O filtro de verdade é feito pelo banco (RLS): cada pessoa só recebe do
+  // servidor as sinalizações que tem permissão de ver (as que registrou, as
+  // que são sobre ela mesma, do setor que administra, ou tudo — se for
+  // administrador ou tiver a permissão "ver sinalizações de todos os
+  // setores"). Aqui só exibimos o que já veio filtrado.
+  const listaBase = state.sinalizacoes;
   const abertas = listaBase.filter(s => s.status === 'aberta').length;
   document.getElementById('content').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
       <div class="section-title" style="margin-bottom:0;">Sinalizações de Colaboradores <span style="color:var(--text-3); text-transform:none; font-weight:600;">(${abertas} aberta${abertas===1?'':'s'})</span></div>
-      <button class="btn-brass" onclick="toggleNovaSinalizacao()"><i class="fa-solid fa-plus"></i> Nova sinalização</button>
+      ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovaSinalizacao()"><i class="fa-solid fa-plus"></i> Nova sinalização</button>` : ''}
     </div>
     <div style="font-size:12px; color:var(--text-2); max-width:760px; margin-bottom:16px; line-height:1.5;">
-      Use esta área para sinalizar colaboradores a respeito de erros, falhas ou pontos de atenção no trabalho — não é para assuntos de clientes. Cada sinalização recebe uma classificação de gravidade definida pelo administrador.
+      Registro, feito pela administração, de erros, falhas ou pontos de atenção no trabalho de um colaborador — não é para assuntos de clientes. Cada sinalização recebe uma classificação de gravidade definida pelo administrador.
     </div>
     ${!podeVerTodas ? `
       <div style="font-size:11.5px; color:var(--text-3); background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:14px; max-width:900px;">
-        <i class="fa-solid fa-lock" style="font-size:10px;"></i> Exibindo apenas sinalizações do setor ${esc(emp?emp.setor:'')}, de acordo com o seu nível de acesso (${esc(emp?emp.nivel:'')}).
+        <i class="fa-solid fa-lock" style="font-size:10px;"></i> Exibindo só as sinalizações que você tem permissão de ver: as que registrou e as que são sobre você mesmo.
       </div>
     ` : ''}
-    ${state.novaSinalizacao ? `
+    ${state.novaSinalizacao && isAdmin() ? `
       <div class="card" style="padding:18px; margin-bottom:20px; max-width:760px;">
         <div class="form-grid" style="grid-template-columns:1fr 1fr;">
           <div class="form-field" style="grid-column:span 2;"><label>Título</label><input id="sn-titulo" placeholder="Ex: Atraso recorrente na entrega de tarefas"></div>
@@ -98,6 +104,7 @@ function renderSinalizacoesView() {
     <div class="card" style="overflow:hidden; max-width:900px;">
       ${listaBase.length === 0 ? `<div style="padding:24px; text-align:center; color:var(--text-3); font-size:13px;">Nenhuma sinalização registrada.</div>` : listaBase.map(s => {
         const cls = classificacaoById(s.classificacaoId);
+        const podeGerenciar = isAdmin() || (emp && s.autorId === emp.id) || (emp && (state.gestoresSetor[s.setor]||[]).includes(emp.id));
         return `
         <div class="aviso-row" style="opacity:${s.status==='resolvida'?0.6:1};">
           <div class="priority-bar" style="background:${cls?cls.cor:'var(--text-3)'};"></div>
@@ -110,10 +117,11 @@ function renderSinalizacoesView() {
             <div style="font-size:12px; color:var(--text-2); margin:5px 0;">${esc(s.descricao)}</div>
             <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(s.colaborador || '')} · ${esc(s.setor)} · ${esc(s.data)} · sinalizado por ${esc(s.autor)}</div>
           </div>
+          ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;">
             <button class="admin-edit-btn" title="${s.status==='resolvida'?'Reabrir':'Marcar como resolvida'}" onclick="resolverSinalizacao('${s.id}')"><i class="fa-solid ${s.status==='resolvida'?'fa-rotate-left':'fa-check'}" style="font-size:12px;"></i></button>
             <button class="admin-del-btn" title="Remover" onclick="removerSinalizacao('${s.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
-          </div>
+          </div>` : ''}
         </div>
       `;}).join('')}
     </div>
