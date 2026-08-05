@@ -1,0 +1,76 @@
+name: Supabase Keep-Alive
+
+# Por que este workflow existe: projetos gratuitos do Supabase são
+# pausados automaticamente após 7 dias seguidos sem nenhuma requisição à
+# API. Este portal não tem backend próprio (é um site estático — ver
+# README.md) e só fala com o Supabase quando alguém abre o navegador, então
+# um fim de semana prolongado ou período de férias sem acesso é suficiente
+# para pausar o projeto. Este workflow roda de forma independente de
+# qualquer visita ao site, garantindo que sempre exista atividade recente.
+#
+# O que ele faz, a cada execução: uma única requisição GET, de leitura,
+# à tabela "modulos" (a mesma consulta mínima que a tela Administração →
+# Conexão Supabase já usa para "testar conexão" — ver
+# js/supabase-client.js:testarConexaoSupabase). Não escreve, não altera
+# e não expõe nenhum dado: a política de RLS da tabela filtra tudo para
+# quem não está autenticado, então a resposta é sempre uma lista vazia.
+# É só um "sinal de vida" para a API.
+
+on:
+  schedule:
+    # A cada 3 dias, às 09:17 UTC — horário quebrado de propósito, para
+    # não cair no minuto cheio (GitHub atrasa/derruba execuções agendadas
+    # exatamente nesses horários de pico). Folga confortável: mesmo que
+    # uma execução falhe por completo, ainda sobram ~4 dias antes do
+    # limite de pausa por inatividade do Supabase (7 dias).
+    - cron: '17 9 */3 * *'
+  workflow_dispatch: {} # permite rodar manualmente pela aba Actions, para testar
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping leve e somente-leitura ao Supabase (com nova tentativa em caso de falha)
+        env:
+          # URL do projeto e a chave "anon": públicas por design (a mesma
+          # chave já fica no navegador de qualquer pessoa que abre o
+          # portal — ver supabase-config.js) — não é segredo, então não
+          # há necessidade de configurar Secrets do repositório para isto.
+          SUPABASE_URL: "https://jckatfssghcvtjzflbpm.supabase.co"
+          SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2F0ZnNzZ2hjdnRqemZsYnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNjMyNTIsImV4cCI6MjEwMDczOTI1Mn0.NFnwP-wAR1gtP76sBU6FohTgB-BJHd7GPt2vP6csnso"
+        run: |
+          set +e
+          TENTATIVAS=3
+          ESPERA_SEGUNDOS=15
+
+          for i in $(seq 1 "$TENTATIVAS"); do
+            echo "::group::Tentativa $i de $TENTATIVAS"
+
+            HTTP_STATUS=$(curl -sS -o /tmp/resposta.txt -w "%{http_code}" \
+              --max-time 20 \
+              -X GET "$SUPABASE_URL/rest/v1/modulos?select=id&limit=1" \
+              -H "apikey: $SUPABASE_ANON_KEY" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+            CURL_EXIT=$?
+
+            echo "Código de saída do curl: $CURL_EXIT"
+            echo "Status HTTP: $HTTP_STATUS"
+            echo "Corpo da resposta:"
+            cat /tmp/resposta.txt
+            echo "::endgroup::"
+
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "✅ Supabase respondeu normalmente (status $HTTP_STATUS). Projeto ativo."
+              exit 0
+            fi
+
+            echo "⚠️ Falha na tentativa $i (curl exit=$CURL_EXIT, status=$HTTP_STATUS)."
+            if [ "$i" -lt "$TENTATIVAS" ]; then
+              echo "Aguardando ${ESPERA_SEGUNDOS}s antes de tentar novamente..."
+              sleep "$ESPERA_SEGUNDOS"
+            fi
+          done
+
+          echo "❌ Todas as $TENTATIVAS tentativas falharam. Marcando este job como falho."
+          echo "O GitHub envia e-mail automaticamente para quem tem acesso ao repositório quando um workflow agendado falha — veja a aba Actions para os detalhes desta execução."
+          exit 1

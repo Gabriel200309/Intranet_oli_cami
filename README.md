@@ -56,12 +56,15 @@ js/
   router.js                   roteamento de telas e montagem geral (renderAll)
   bootstrap.js                restaura sessão do Supabase ao recarregar a página
 supabase/                     schema SQL (migrations), RLS, seed e Edge Function do backend
-docs/                         arquitetura do backend e guia de migração do front-end
+docs/                         arquitetura do backend, guia de migração do front-end e keep-alive
+.github/workflows/            automação (keep-alive do Supabase)
 ```
 
 ## Backend Supabase
 
 O projeto Supabase completo (schema, RLS, funções auxiliares, triggers, Realtime e a Edge Function de análise de erros por IA) está em [`supabase/`](supabase/README.md). Ele já foi validado localmente contra um Postgres real, incluindo testes de RLS por setor — veja detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+
+Um workflow do GitHub Actions ([`.github/workflows/supabase-keep-alive.yml`](.github/workflows/supabase-keep-alive.yml)) faz uma requisição leve e periódica ao Supabase para evitar que o projeto seja pausado por inatividade (limite do plano gratuito) — detalhes, frequência e limites em [docs/KEEP_ALIVE.md](docs/KEEP_ALIVE.md).
 
 ## Documentos internos relacionados (fora do Git)
 
