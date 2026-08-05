@@ -124,15 +124,17 @@ function renderAdminFuncionarios(c) {
   c.innerHTML = `
     ${(supabaseClient && !ed) ? `
       <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;">
-        <i class="fa-solid fa-circle-info"></i> Para um novo colaborador acessar o portal, primeiro crie o login dele em
-        <strong>Supabase → Authentication → Users → Add user</strong> (defina o e-mail e uma senha temporária).
-        Depois cole aqui o <strong>UUID</strong> gerado (aparece na lista de usuários) para completar o cadastro.
-      </div>
-      <div class="form-grid">
-        <div class="form-field" style="grid-column:span 2;"><label>UUID do usuário (Supabase Authentication → Users)</label><input id="f-uuid" placeholder="ex: 4b1e2d3a-....."></div>
+        <i class="fa-solid fa-circle-info"></i> Ao cadastrar, o login do colaborador é criado automaticamente. Ninguém define uma senha agora — na primeira vez, a pessoa entra pelo link <strong>"Esqueci minha senha"</strong> na tela de login, usando o e-mail informado abaixo.
       </div>
     ` : ''}
     <div class="form-grid">
+      <div class="form-field" style="grid-column:span 2;">
+        <label>Foto do colaborador</label>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img id="f-foto-preview" src="${e&&e.foto_url?esc(e.foto_url):''}" style="width:52px; height:52px; border-radius:50%; object-fit:cover; background:var(--surface-2); ${e&&e.foto_url?'':'display:none;'}">
+          <button type="button" class="admin-edit-btn" onclick="document.getElementById('funcionarioFotoInput').click()"><i class="fa-solid fa-upload"></i> Enviar foto</button>
+        </div>
+      </div>
       <div class="form-field"><label>Nome completo</label><input id="f-nome" value="${esc(e?e.nome:'')}" placeholder="Ex: Ana Souza"></div>
       <div class="form-field"><label>Número (matrícula)</label><input id="f-numero" value="${esc(e?e.numero:'')}" placeholder="Ex: 0012"></div>
       <div class="form-field"><label>Setor</label><select id="f-setor">${SETORES.map(s=>`<option ${e&&e.setor===s?'selected':''}>${s}</option>`).join('')}</select></div>
@@ -150,7 +152,7 @@ function renderAdminFuncionarios(c) {
     ${state.employees.map(emp => `
       <div class="admin-list-item">
         <div style="display:flex; align-items:center; gap:10px;">
-          <div class="avatar" style="width:30px; height:30px; font-size:11px;">${initials(emp.nome)}</div>
+          ${avatarHTML(emp.nome, emp.foto_url, 'width:30px; height:30px; font-size:11px;')}
           <div>
             <div style="font-size:13px; font-weight:700;">${esc(emp.nome)} <span style="color:var(--text-3); font-weight:600;">· nº ${esc(emp.numero)}</span></div>
             <div class="admin-list-meta">${esc(emp.cargo)} — ${esc(emp.setor)} · <i class="fa-solid fa-calendar-days" style="font-size:10px;"></i> ${esc(emp.nascimento)} · <i class="fa-solid fa-phone" style="font-size:10px;"></i> ${esc(emp.telefone)}</div>
@@ -169,33 +171,50 @@ async function submitEmployee() {
   const data = { nome: val('f-nome'), numero: val('f-numero'), setor: val('f-setor'), cargo: val('f-cargo'), nivel: val('f-nivel'), nascimento: val('f-nasc'), telefone: val('f-tel'), email: val('f-email') };
   if (!data.nome.trim()) return;
   const ed = state.editing.employee;
+  const fotoTemp = state.editing.employeeFotoTemp;
+  const fotoUrl = fotoTemp !== undefined ? fotoTemp : (ed ? (state.employees.find(x=>x.id===ed) || {}).foto_url : null);
   if (!supabaseClient) {
-    if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed }; showToast('Funcionário atualizado!'); }
-    else { state.employees.push({ ...data, id: uid('e') }); showToast('Funcionário cadastrado!'); }
+    if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed, foto_url: fotoUrl }; showToast('Funcionário atualizado!'); }
+    else { state.employees.push({ ...data, id: uid('e'), foto_url: fotoUrl }); showToast('Funcionário cadastrado!'); }
     state.editing.employee = null;
+    state.editing.employeeFotoTemp = undefined;
     renderAdminTabContent();
     return;
   }
   const payload = {
     nome: data.nome, numero: data.numero || null, setor: data.setor, cargo: data.cargo, nivel: data.nivel,
-    nascimento: dataBRparaISO(data.nascimento), telefone: data.telefone || null, email: data.email,
+    nascimento: dataBRparaISO(data.nascimento), telefone: data.telefone || null, email: data.email, foto_url: fotoUrl || null,
   };
   if (ed) {
     const { error } = await supabaseClient.from('funcionarios').update(payload).eq('id', ed);
     if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
     showToast('Funcionário atualizado!');
   } else {
-    const uuid = val('f-uuid').trim();
-    if (!uuid) { showToast('Cole o UUID do usuário criado em Authentication → Users.'); return; }
-    const { error } = await supabaseClient.from('funcionarios').insert({ id: uuid, ...payload });
-    if (error) { showToast('Não foi possível cadastrar: ' + error.message); return; }
-    showToast('Funcionário cadastrado!');
+    if (!data.email.trim()) { showToast('Informe o e-mail corporativo.'); return; }
+    showToast('Criando o login e o cadastro...');
+    try {
+      const { data: sessao } = await supabaseClient.auth.getSession();
+      const token = sessao && sessao.session && sessao.session.access_token;
+      if (!token) throw new Error('Sessão não encontrada.');
+      const resp = await fetch(`${window.SUPABASE_URL}/functions/v1/criar-funcionario`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...payload, fotoUrl: payload.foto_url }),
+      });
+      const respData = await resp.json().catch(() => null);
+      if (!resp.ok || !respData || respData.erro) throw new Error((respData && respData.erro) || `status ${resp.status}`);
+      showToast('Funcionário cadastrado! O acesso é feito por "Esqueci minha senha" no primeiro login.');
+    } catch (err) {
+      showToast('Não foi possível cadastrar: ' + err.message + ' (a Edge Function "criar-funcionario" precisa estar publicada — veja supabase/README.md)');
+      return;
+    }
   }
   state.editing.employee = null;
+  state.editing.employeeFotoTemp = undefined;
   await carregarFuncionarios();
   renderAdminTabContent();
 }
-function editEmployee(id) { state.editing.employee = id; renderAdminTabContent(); }
+function editEmployee(id) { state.editing.employee = id; state.editing.employeeFotoTemp = undefined; renderAdminTabContent(); }
 async function removeEmployee(id) {
   if (supabaseClient) {
     const { error } = await supabaseClient.from('funcionarios').delete().eq('id', id);
@@ -204,7 +223,7 @@ async function removeEmployee(id) {
   state.employees = state.employees.filter(x=>x.id!==id);
   renderAdminTabContent();
 }
-function cancelEdit(kind) { state.editing[kind] = null; renderAdminTabContent(); }
+function cancelEdit(kind) { state.editing[kind] = null; if (kind === 'employee') state.editing.employeeFotoTemp = undefined; renderAdminTabContent(); }
 
 /* --- AUDIÊNCIAS --- */
 function renderAdminAudiencias(c) {
@@ -481,8 +500,20 @@ async function removeMeta(id) {
 /* --- FUNCIONÁRIO DO MÊS --- */
 function renderAdminFuncionarioMes(c) {
   const f = state.funcionarioMes;
+  const fotoAtual = state.editing.funcionarioMesFotoTemp !== undefined ? state.editing.funcionarioMesFotoTemp : f.foto_url;
   c.innerHTML = `
+    <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;"><i class="fa-solid fa-circle-info"></i> Selecione um colaborador cadastrado para preencher nome, cargo e foto automaticamente (a partir da foto enviada no cadastro dele em Funcionários).</div>
     <div class="form-grid">
+      <div class="form-field" style="grid-column:span 2;">
+        <label>Selecionar funcionário</label>
+        <select id="fm-funcionario" onchange="preencherFuncionarioMesDoSelecionado(this.value)">
+          <option value="">— Preencher manualmente —</option>
+          ${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-field" style="grid-column:span 2;">
+        <img id="fm-foto-preview" src="${fotoAtual?esc(fotoAtual):''}" style="width:52px; height:52px; border-radius:50%; object-fit:cover; background:var(--surface-2); ${fotoAtual?'':'display:none;'}">
+      </div>
       <div class="form-field"><label>Nome</label><input id="fm-nome" value="${esc(f.nome)}"></div>
       <div class="form-field"><label>Cargo</label><input id="fm-cargo" value="${esc(f.cargo)}"></div>
       <div class="form-field" style="grid-column:span 2;"><label>Motivo</label><input id="fm-motivo" value="${esc(f.motivo)}"></div>
@@ -491,9 +522,20 @@ function renderAdminFuncionarioMes(c) {
     <button class="admin-add-btn" onclick="submitFuncionarioMes()"><i class="fa-solid fa-plus"></i> Salvar</button>
   `;
 }
+function preencherFuncionarioMesDoSelecionado(id) {
+  const emp = state.employees.find(x => x.id === id);
+  if (!emp) return;
+  setVal('fm-nome', emp.nome);
+  setVal('fm-cargo', emp.cargo);
+  state.editing.funcionarioMesFotoTemp = emp.foto_url || null;
+  const img = document.getElementById('fm-foto-preview');
+  if (img) { img.src = emp.foto_url || ''; img.style.display = emp.foto_url ? '' : 'none'; }
+}
 async function submitFuncionarioMes() {
-  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg') };
+  const fotoUrl = state.editing.funcionarioMesFotoTemp !== undefined ? state.editing.funcionarioMesFotoTemp : state.funcionarioMes.foto_url;
+  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg'), foto_url: fotoUrl || null };
   state.funcionarioMes = data;
+  state.editing.funcionarioMesFotoTemp = undefined;
   renderFuncionarioMes();
   showToast('Funcionário do mês atualizado!');
   if (supabaseClient) {

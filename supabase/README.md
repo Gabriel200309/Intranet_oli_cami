@@ -17,12 +17,15 @@ supabase-project/
 │   │   ├── 0006_helper_functions.sql         # funções de permissão (equivalentes ao JS antigo)
 │   │   ├── 0007_rls_policies.sql             # Row Level Security de TODAS as tabelas
 │   │   ├── 0008_triggers.sql                 # progresso automático de cursos + notificação de parabéns
-│   │   └── 0009_realtime.sql                 # habilita Realtime em notificações e chat
+│   │   ├── 0009_realtime.sql                 # habilita Realtime em notificações e chat
+│   │   └── 0010_funcionario_mes_foto.sql     # foto do funcionário do mês
 │   ├── seed.sql                              # dados de configuração/exemplo
 │   └── functions/
-│       └── analisar-erro-ia/
-│           ├── index.ts                      # Edge Function: chama o Claude, nunca do navegador
-│           └── .env.example
+│       ├── analisar-erro-ia/
+│       │   ├── index.ts                      # Edge Function: chama o Claude, nunca do navegador
+│       │   └── .env.example
+│       └── criar-funcionario/
+│           └── index.ts                      # Edge Function: cria login + cadastro de um novo colaborador
 └── docs/
     ├── ARQUITETURA.md                        # visão geral e por que isso resolve as falhas do protótipo
     └── GUIA_MIGRACAO_FRONTEND.md             # mapeamento state.* → tabela, com exemplos de código
@@ -40,7 +43,7 @@ npm install -g supabase
 supabase login
 supabase link --project-ref SEU_PROJECT_REF
 
-# 4. Aplique todo o schema (as 9 migrations, em ordem)
+# 4. Aplique todo o schema (as migrations, em ordem)
 supabase db push
 
 # 5. Rode os dados iniciais (permissões padrão, módulos, classificações etc.)
@@ -50,10 +53,13 @@ supabase db push
 # 6. Configure a chave da Anthropic (nunca no front-end)
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-SUACHAVE
 
-# 7. Publique a Edge Function
+# 7. Publique as Edge Functions
 supabase functions deploy analisar-erro-ia
+supabase functions deploy criar-funcionario
 
-# 8. Crie os primeiros usuários (Authentication > Users no painel, ou API admin)
+# 7b. Crie os buckets de Storage no painel: "cursos" e "avatares" (públicos)
+
+# 8. Crie o primeiro usuário administrador (Authentication > Users no painel, ou API admin)
 #    e complete o cadastro de cada um na tabela `funcionarios` (ver seed.sql,
 #    seção comentada no final, e docs/ARQUITETURA.md)
 ```

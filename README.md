@@ -6,8 +6,10 @@ Aplicação client-side em HTML/CSS/JavaScript puro (sem build, sem framework) q
 
 **Passos manuais que ainda faltam no painel do Supabase** (não dá para automatizar via chave anon):
 - Criar o bucket **Storage → New bucket → `cursos`** (público) para upload de vídeos/PDFs/fotos dos cursos.
+- Criar o bucket **Storage → New bucket → `avatares`** (público) para a foto dos colaboradores.
+- Aplicar a migration nova, `supabase/migrations/0010_funcionario_mes_foto.sql` (cole no SQL Editor se o projeto já estava rodando as migrations anteriores).
 - Publicar a Edge Function `analisar-erro-ia` (`supabase functions deploy analisar-erro-ia`) e configurar `ANTHROPIC_API_KEY` nos secrets, para a análise automática de erros funcionar (sem isso, "Reportar Erro" continua salvando o relato, só sem a análise por IA).
-- Cadastrar novos funcionários exige primeiro criar o usuário em **Authentication → Users**, depois colar o UUID gerado no formulário de Administração → Funcionários (ver aviso na própria tela).
+- Publicar a Edge Function `criar-funcionario` (`supabase functions deploy criar-funcionario`) — sem isso, o cadastro de novos colaboradores em Administração → Funcionários não funciona (ela cria o login e o cadastro numa só chamada; não precisa de secret extra, só das variáveis padrão do projeto).
 
 ## Como rodar localmente
 

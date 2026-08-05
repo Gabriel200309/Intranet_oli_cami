@@ -177,7 +177,7 @@ async function carregarAniversariantes() {
 async function carregarFuncionarioMes() {
   const { data, error } = await supabaseClient.from('funcionario_mes').select('*').eq('id', true).maybeSingle();
   if (error) { console.error('Erro ao carregar funcionário do mês:', error.message); return; }
-  if (data) state.funcionarioMes = { nome: data.nome || '', cargo: data.cargo || '', motivo: data.motivo || '', mensagem: data.mensagem || '' };
+  if (data) state.funcionarioMes = { nome: data.nome || '', cargo: data.cargo || '', motivo: data.motivo || '', mensagem: data.mensagem || '', foto_url: data.foto_url || null };
 }
 
 async function carregarParabens() {

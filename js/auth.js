@@ -266,6 +266,15 @@ function normalizeUrl(u) {
   return u;
 }
 function initials(name) { return name.split(' ').map(w=>w[0]).slice(0,2).join(''); }
+/* Avatar com foto real quando disponível (funcionarios.foto_url), com
+   fallback para as iniciais — mesmo wrapper .avatar de sempre, então
+   pode substituir qualquer initials(...) sem mudar o layout ao redor. */
+function avatarHTML(nome, fotoUrl, extraStyle) {
+  if (fotoUrl) {
+    return `<div class="avatar" style="${extraStyle||''} padding:0; overflow:hidden;"><img src="${esc(fotoUrl)}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;"></div>`;
+  }
+  return `<div class="avatar" style="${extraStyle||''}">${esc(initials(nome||'?'))}</div>`;
+}
 
 let toastTimer = null;
 function showToast(msg) {

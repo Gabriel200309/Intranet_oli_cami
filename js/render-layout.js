@@ -294,7 +294,7 @@ function renderFuncionarioMes() {
   const f = state.funcionarioMes;
   el.innerHTML = `
     <div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brass); margin-bottom:14px;"><i class="fa-solid fa-trophy"></i> FUNCIONÁRIO DO MÊS</div>
-    <div class="avatar" style="width:52px; height:52px; font-size:16px; margin-bottom:12px; background:rgba(255,255,255,.12);">${initials(f.nome)}</div>
+    ${avatarHTML(f.nome, f.foto_url, 'width:52px; height:52px; font-size:16px; margin-bottom:12px; background:rgba(255,255,255,.12);')}
     <div class="serif" style="font-size:18px; font-weight:700; color:var(--brass-light);">${esc(f.nome)}</div>
     <div style="font-size:12px; opacity:.7; margin-bottom:10px;">${esc(f.cargo)}</div>
     <div style="font-size:12px; opacity:.85; line-height:1.5; margin-bottom:14px;">${esc(f.mensagem)}</div>
@@ -421,11 +421,11 @@ document.getElementById('teamFileInput').addEventListener('change', function(e) 
   reader.onload = () => { state.teamPhoto = reader.result; renderHero(); showToast('Foto do time atualizada!'); };
   reader.readAsDataURL(file);
 });
-async function uploadParaBucketCursos(file) {
+async function uploadParaBucket(bucket, file) {
   const caminho = `${Date.now()}-${uid('f')}-${file.name}`.replace(/\s+/g, '_');
-  const { error } = await supabaseClient.storage.from('cursos').upload(caminho, file);
+  const { error } = await supabaseClient.storage.from(bucket).upload(caminho, file);
   if (error) throw error;
-  const { data } = supabaseClient.storage.from('cursos').getPublicUrl(caminho);
+  const { data } = supabaseClient.storage.from(bucket).getPublicUrl(caminho);
   return data.publicUrl;
 }
 document.getElementById('cursoUploadInput').addEventListener('change', async function(e) {
@@ -440,10 +440,33 @@ document.getElementById('cursoUploadInput').addEventListener('change', async fun
   }
   showToast('Enviando arquivo...');
   try {
-    const url = await uploadParaBucketCursos(file);
+    const url = await uploadParaBucket('cursos', file);
     aplicarUploadCurso(target, file.name, url);
   } catch (err) {
     showToast('Não foi possível enviar o arquivo: ' + err.message + ' (crie o bucket "cursos" no Supabase Storage)');
+  }
+});
+document.getElementById('funcionarioFotoInput').addEventListener('change', async function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  this.value = '';
+  const aplicar = (url) => {
+    state.editing.employeeFotoTemp = url;
+    const img = document.getElementById('f-foto-preview');
+    if (img) { img.src = url; img.style.display = ''; }
+    showToast('Foto carregada!');
+  };
+  if (!supabaseClient) {
+    const reader = new FileReader();
+    reader.onload = () => aplicar(reader.result);
+    reader.readAsDataURL(file);
+    return;
+  }
+  showToast('Enviando foto...');
+  try {
+    const url = await uploadParaBucket('avatares', file);
+    aplicar(url);
+  } catch (err) {
+    showToast('Não foi possível enviar a foto: ' + err.message + ' (crie o bucket "avatares" no Supabase Storage)');
   }
 });
 function aplicarUploadCurso(target, nomeArquivo, url) {
