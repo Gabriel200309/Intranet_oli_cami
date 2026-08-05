@@ -292,13 +292,25 @@ function renderFuncionarioMes() {
   const el = document.getElementById('funcionarioMesCard');
   if (!el) return;
   const f = state.funcionarioMes;
+  if (!f.nome) {
+    el.innerHTML = `
+      <div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brass); margin-bottom:14px;"><i class="fa-solid fa-trophy"></i> FUNCIONÁRIO DO MÊS</div>
+      <div style="font-size:12px; opacity:.7;">Nenhum funcionário do mês definido ainda.</div>
+    `;
+    return;
+  }
+  const meuId = getEffectiveEmployee() ? getEffectiveEmployee().id : null;
+  const jaEnviou = f.funcionarioId ? jaEnviouParabens(f.funcionarioId) : false;
+  const souEu = f.funcionarioId && f.funcionarioId === meuId;
+  const desabilitado = !f.funcionarioId || jaEnviou || souEu;
+  const titulo = !f.funcionarioId ? 'Este destaque não está vinculado a um funcionário cadastrado' : souEu ? 'Você não pode parabenizar a si mesmo' : jaEnviou ? 'Parabéns já enviado' : 'Enviar parabéns';
   el.innerHTML = `
     <div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--brass); margin-bottom:14px;"><i class="fa-solid fa-trophy"></i> FUNCIONÁRIO DO MÊS</div>
     ${avatarHTML(f.nome, f.foto_url, 'width:52px; height:52px; font-size:16px; margin-bottom:12px; background:rgba(255,255,255,.12);')}
     <div class="serif" style="font-size:18px; font-weight:700; color:var(--brass-light);">${esc(f.nome)}</div>
     <div style="font-size:12px; opacity:.7; margin-bottom:10px;">${esc(f.cargo)}</div>
     <div style="font-size:12px; opacity:.85; line-height:1.5; margin-bottom:14px;">${esc(f.mensagem)}</div>
-    <button class="btn-brass" style="background:rgba(255,255,255,.14);" onclick="showToast('🎉 Parabéns enviados a ${esc(f.nome)}!')">Parabenizar</button>
+    <button class="btn-brass" style="background:rgba(255,255,255,.14); ${desabilitado?'opacity:.5; cursor:not-allowed;':''}" ${desabilitado?'disabled':''} title="${titulo}" onclick="enviarParabens('${f.funcionarioId||''}')">${jaEnviou?'Parabéns enviado':'Parabenizar'}</button>
   `;
 }
 

@@ -231,8 +231,19 @@ function renderAdminFuncionarios(c) {
       <button class="admin-add-btn" onclick="submitEmployee()"><i class="fa-solid fa-plus"></i> ${ed?'Salvar alterações':'Cadastrar funcionário'}</button>
       ${ed ? `<button class="admin-cancel-btn" onclick="cancelEdit('employee')">Cancelar</button>` : ''}
     </div>
-    <div class="admin-section-label">Funcionários cadastrados (${state.employees.length})</div>
-    ${state.employees.map(emp => `
+    <div class="admin-header-row" style="margin-bottom:10px;">
+      <div class="admin-section-label" style="margin:0;">Funcionários cadastrados (${state.employees.length})</div>
+      <div class="search-box" style="width:280px;">
+        <i class="fa-solid fa-magnifying-glass" style="color:var(--text-3); font-size:12px;"></i>
+        <input id="f-busca" placeholder="Buscar por nome, cargo, setor ou e-mail..." oninput="filtrarListaFuncionarios(this.value)">
+      </div>
+    </div>
+    <div id="funcionariosListaFiltrada">${listaFuncionariosHTML(state.employees)}</div>
+  `;
+}
+function listaFuncionariosHTML(lista) {
+  if (!lista.length) return `<div style="font-size:12.5px; color:var(--text-3); padding:12px 0;">Nenhum funcionário encontrado.</div>`;
+  return lista.map(emp => `
       <div class="admin-list-item">
         <div style="display:flex; align-items:center; gap:10px;">
           ${avatarHTML(emp.nome, emp.foto_url, 'width:30px; height:30px; font-size:11px;')}
@@ -247,8 +258,16 @@ function renderAdminFuncionarios(c) {
           <button class="admin-del-btn" onclick="removeEmployee('${emp.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
         </div>
       </div>
-    `).join('')}
-  `;
+    `).join('');
+}
+function filtrarListaFuncionarios(termo) {
+  const el = document.getElementById('funcionariosListaFiltrada');
+  if (!el) return;
+  const q = termo.trim().toLowerCase();
+  const filtrados = !q ? state.employees : state.employees.filter(emp =>
+    [emp.nome, emp.cargo, emp.setor, emp.nivel, emp.numero, emp.email].some(v => v && String(v).toLowerCase().includes(q))
+  );
+  el.innerHTML = listaFuncionariosHTML(filtrados);
 }
 async function submitEmployee() {
   const data = { nome: val('f-nome'), numero: val('f-numero'), setor: val('f-setor'), cargo: val('f-cargo'), nivel: val('f-nivel'), nascimento: val('f-nasc'), telefone: val('f-tel'), email: val('f-email') };
@@ -608,14 +627,15 @@ async function removeMeta(id) {
 function renderAdminFuncionarioMes(c) {
   const f = state.funcionarioMes;
   const fotoAtual = state.editing.funcionarioMesFotoTemp !== undefined ? state.editing.funcionarioMesFotoTemp : f.foto_url;
+  const idAtual = state.editing.funcionarioMesIdTemp !== undefined ? state.editing.funcionarioMesIdTemp : f.funcionarioId;
   c.innerHTML = `
-    <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;"><i class="fa-solid fa-circle-info"></i> Selecione um colaborador cadastrado para preencher nome, cargo e foto automaticamente (a partir da foto enviada no cadastro dele em Funcionários).</div>
+    <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;"><i class="fa-solid fa-circle-info"></i> Selecione um colaborador cadastrado para preencher nome, cargo e foto automaticamente, e para o botão "Parabenizar" do painel inicial enviar uma notificação de verdade para essa pessoa.</div>
     <div class="form-grid">
       <div class="form-field" style="grid-column:span 2;">
         <label>Selecionar funcionário</label>
         <select id="fm-funcionario" onchange="preencherFuncionarioMesDoSelecionado(this.value)">
-          <option value="">— Preencher manualmente —</option>
-          ${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}
+          <option value="">— Preencher manualmente (sem notificação de parabéns) —</option>
+          ${state.employees.map(e => `<option value="${e.id}" ${idAtual===e.id?'selected':''}>${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}
         </select>
       </div>
       <div class="form-field" style="grid-column:span 2;">
@@ -630,8 +650,14 @@ function renderAdminFuncionarioMes(c) {
   `;
 }
 function preencherFuncionarioMesDoSelecionado(id) {
+  state.editing.funcionarioMesIdTemp = id || null;
   const emp = state.employees.find(x => x.id === id);
-  if (!emp) return;
+  if (!emp) {
+    state.editing.funcionarioMesFotoTemp = null;
+    const img = document.getElementById('fm-foto-preview');
+    if (img) { img.style.display = 'none'; }
+    return;
+  }
   setVal('fm-nome', emp.nome);
   setVal('fm-cargo', emp.cargo);
   state.editing.funcionarioMesFotoTemp = emp.foto_url || null;
@@ -640,13 +666,18 @@ function preencherFuncionarioMesDoSelecionado(id) {
 }
 async function submitFuncionarioMes() {
   const fotoUrl = state.editing.funcionarioMesFotoTemp !== undefined ? state.editing.funcionarioMesFotoTemp : state.funcionarioMes.foto_url;
-  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg'), foto_url: fotoUrl || null };
+  const funcionarioId = state.editing.funcionarioMesIdTemp !== undefined ? state.editing.funcionarioMesIdTemp : state.funcionarioMes.funcionarioId;
+  const data = { nome: val('fm-nome'), cargo: val('fm-cargo'), motivo: val('fm-motivo'), mensagem: val('fm-msg'), foto_url: fotoUrl || null, funcionarioId: funcionarioId || null };
   state.funcionarioMes = data;
   state.editing.funcionarioMesFotoTemp = undefined;
+  state.editing.funcionarioMesIdTemp = undefined;
   renderFuncionarioMes();
   showToast('Funcionário do mês atualizado!');
   if (supabaseClient) {
-    const { error } = await supabaseClient.from('funcionario_mes').update(data).eq('id', true);
+    const { error } = await supabaseClient.from('funcionario_mes').update({
+      nome: data.nome, cargo: data.cargo, motivo: data.motivo, mensagem: data.mensagem,
+      foto_url: data.foto_url, funcionario_id: data.funcionarioId,
+    }).eq('id', true);
     if (error) showToast('Não foi possível salvar no banco: ' + error.message);
   }
 }
