@@ -12,10 +12,10 @@
 // logado). Usa a chave service_role, que nunca pode existir no
 // navegador, por isso a criação de usuário só pode acontecer aqui.
 //
-// O colaborador novo não recebe uma senha definida por ninguém: a conta
-// é criada com uma senha aleatória que nunca é revelada, e a pessoa faz
-// o primeiro acesso pelo fluxo "Esqueci minha senha" (código por
-// e-mail), já existente na tela de login.
+// A senha é definida pelo administrador no próprio formulário de
+// cadastro e repassada ao colaborador por fora do sistema — a pessoa já
+// entra com e-mail + essa senha. Quem quiser trocar depois usa o
+// "Esqueci minha senha" (código por e-mail) normalmente.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -54,19 +54,18 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { nome, numero, setor, cargo, nivel, nascimento, telefone, email, fotoUrl } = body;
+    const { nome, numero, setor, cargo, nivel, nascimento, telefone, email, fotoUrl, senha } = body;
     if (!nome || !setor || !cargo || !nivel || !email) {
       return responder({ erro: "Nome, setor, cargo, nível e e-mail são obrigatórios." }, 400);
+    }
+    if (!senha || String(senha).length < 6) {
+      return responder({ erro: "A senha precisa ter pelo menos 6 caracteres." }, 400);
     }
 
     const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    // Senha aleatória, forte, e que nunca é revelada a ninguém: o acesso
-    // real acontece via "Esqueci minha senha" (código por e-mail).
-    const senhaAleatoria = crypto.randomUUID() + crypto.randomUUID();
-
     const { data: novoUsuario, error: erroCriarUsuario } = await supabaseAdmin.auth.admin.createUser({
-      email, password: senhaAleatoria, email_confirm: true,
+      email, password: senha, email_confirm: true,
     });
     if (erroCriarUsuario || !novoUsuario?.user) {
       const msg = erroCriarUsuario?.message || "Falha ao criar o usuário.";

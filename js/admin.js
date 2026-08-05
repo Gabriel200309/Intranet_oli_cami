@@ -124,7 +124,7 @@ function renderAdminFuncionarios(c) {
   c.innerHTML = `
     ${(supabaseClient && !ed) ? `
       <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;">
-        <i class="fa-solid fa-circle-info"></i> Ao cadastrar, o login do colaborador é criado automaticamente. Ninguém define uma senha agora — na primeira vez, a pessoa entra pelo link <strong>"Esqueci minha senha"</strong> na tela de login, usando o e-mail informado abaixo.
+        <i class="fa-solid fa-circle-info"></i> Ao cadastrar, o login do colaborador já é criado com o e-mail e a senha definidos abaixo — repasse essa senha à pessoa (ela pode trocá-la depois pelo link "Esqueci minha senha" na tela de login, se quiser).
       </div>
     ` : ''}
     <div class="form-grid">
@@ -143,6 +143,9 @@ function renderAdminFuncionarios(c) {
       <div class="form-field"><label>Data de nascimento</label><input id="f-nasc" value="${esc(e?e.nascimento:'')}" placeholder="DD/MM/AAAA"></div>
       <div class="form-field"><label>Telefone</label><input id="f-tel" value="${esc(e?e.telefone:'')}" placeholder="(31) 90000-0000"></div>
       <div class="form-field" style="grid-column:span 2;"><label>E-mail corporativo</label><input id="f-email" value="${esc(e?e.email:'')}" placeholder="nome@oliveiracamilo.com.br"></div>
+      ${(supabaseClient && !ed) ? `
+        <div class="form-field" style="grid-column:span 2;"><label>Senha de acesso</label><input id="f-senha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+      ` : ''}
     </div>
     <div style="display:flex; gap:8px;">
       <button class="admin-add-btn" onclick="submitEmployee()"><i class="fa-solid fa-plus"></i> ${ed?'Salvar alterações':'Cadastrar funcionário'}</button>
@@ -191,6 +194,8 @@ async function submitEmployee() {
     showToast('Funcionário atualizado!');
   } else {
     if (!data.email.trim()) { showToast('Informe o e-mail corporativo.'); return; }
+    const senha = val('f-senha');
+    if (!senha || senha.length < 6) { showToast('Defina uma senha com pelo menos 6 caracteres.'); return; }
     showToast('Criando o login e o cadastro...');
     try {
       const { data: sessao } = await supabaseClient.auth.getSession();
@@ -199,11 +204,11 @@ async function submitEmployee() {
       const resp = await fetch(`${window.SUPABASE_URL}/functions/v1/criar-funcionario`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ ...payload, fotoUrl: payload.foto_url }),
+        body: JSON.stringify({ ...payload, fotoUrl: payload.foto_url, senha }),
       });
       const respData = await resp.json().catch(() => null);
       if (!resp.ok || !respData || respData.erro) throw new Error((respData && respData.erro) || `status ${resp.status}`);
-      showToast('Funcionário cadastrado! O acesso é feito por "Esqueci minha senha" no primeiro login.');
+      showToast('Funcionário cadastrado! Já pode entrar com o e-mail e a senha definidos.');
     } catch (err) {
       showToast('Não foi possível cadastrar: ' + err.message + ' (a Edge Function "criar-funcionario" precisa estar publicada — veja supabase/README.md)');
       return;
