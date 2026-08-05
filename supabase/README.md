@@ -20,14 +20,17 @@ supabase-project/
 │   │   ├── 0009_realtime.sql                 # habilita Realtime em notificações e chat
 │   │   ├── 0010_funcionario_mes_foto.sql     # foto do funcionário do mês
 │   │   ├── 0011_storage_buckets.sql          # buckets "cursos" e "avatares" + políticas
-│   │   └── 0012_setores_dinamicos.sql        # setores: de enum fixo para tabela editável (CRUD)
+│   │   ├── 0012_setores_dinamicos.sql        # setores: de enum fixo para tabela editável (CRUD)
+│   │   └── 0013_sinalizacoes_privacidade.sql # sinalizações: só admin registra; visibilidade restrita
 │   ├── seed.sql                              # dados de configuração/exemplo
 │   └── functions/
 │       ├── analisar-erro-ia/
 │       │   ├── index.ts                      # Edge Function: chama o Claude, nunca do navegador
 │       │   └── .env.example
-│       └── criar-funcionario/
-│           └── index.ts                      # Edge Function: cria login + cadastro de um novo colaborador
+│       ├── criar-funcionario/
+│       │   └── index.ts                      # Edge Function: cria login + cadastro de um novo colaborador
+│       └── alterar-senha-funcionario/
+│           └── index.ts                      # Edge Function: define uma nova senha para um colaborador existente
 └── docs/
     ├── ARQUITETURA.md                        # visão geral e por que isso resolve as falhas do protótipo
     └── GUIA_MIGRACAO_FRONTEND.md             # mapeamento state.* → tabela, com exemplos de código

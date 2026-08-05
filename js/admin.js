@@ -219,6 +219,13 @@ function renderAdminFuncionarios(c) {
       ${(supabaseClient && !ed) ? `
         <div class="form-field" style="grid-column:span 2;"><label>Senha de acesso</label><input id="f-senha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
       ` : ''}
+      ${(supabaseClient && ed) ? `
+        <div class="form-field" style="grid-column:span 2;">
+          <label>Nova senha</label>
+          <input id="f-nova-senha" type="password" placeholder="Deixe em branco para manter a senha atual" autocomplete="new-password">
+          <span style="font-size:10.5px; color:var(--text-3); margin-top:2px;"><i class="fa-solid fa-circle-info"></i> Por segurança, não é possível ver a senha atual — só definir uma nova, se precisar trocá-la.</span>
+        </div>
+      ` : ''}
     </div>
     <div style="display:flex; gap:8px;">
       <button class="admin-add-btn" onclick="submitEmployee()"><i class="fa-solid fa-plus"></i> ${ed?'Salvar alterações':'Cadastrar funcionário'}</button>
@@ -264,7 +271,29 @@ async function submitEmployee() {
   if (ed) {
     const { error } = await supabaseClient.from('funcionarios').update(payload).eq('id', ed);
     if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
-    showToast('Funcionário atualizado!');
+    const novaSenha = val('f-nova-senha');
+    if (novaSenha) {
+      if (novaSenha.length < 6) { showToast('Funcionário atualizado, mas a nova senha precisa ter pelo menos 6 caracteres — não foi alterada.'); }
+      else {
+        try {
+          const { data: sessao } = await supabaseClient.auth.getSession();
+          const token = sessao && sessao.session && sessao.session.access_token;
+          if (!token) throw new Error('Sessão não encontrada.');
+          const resp = await fetch(`${window.SUPABASE_URL}/functions/v1/alterar-senha-funcionario`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ funcionarioId: ed, novaSenha }),
+          });
+          const respData = await resp.json().catch(() => null);
+          if (!resp.ok || !respData || respData.erro) throw new Error((respData && respData.erro) || `status ${resp.status}`);
+          showToast('Funcionário atualizado e senha alterada!');
+        } catch (err) {
+          showToast('Funcionário atualizado, mas não foi possível trocar a senha: ' + err.message);
+        }
+      }
+    } else {
+      showToast('Funcionário atualizado!');
+    }
   } else {
     if (!data.email.trim()) { showToast('Informe o e-mail corporativo.'); return; }
     const senha = val('f-senha');
