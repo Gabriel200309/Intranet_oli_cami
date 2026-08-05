@@ -315,7 +315,7 @@ function renderFuncionarioMes() {
     <div class="serif" style="font-size:18px; font-weight:700; color:var(--brass-light);">${esc(f.nome)}</div>
     <div style="font-size:12px; opacity:.7; margin-bottom:10px;">${esc(f.cargo)}</div>
     <div style="font-size:12px; opacity:.85; line-height:1.5; margin-bottom:14px;">${esc(f.mensagem)}</div>
-    <button class="btn-brass" style="background:rgba(255,255,255,.14); ${desabilitado?'opacity:.5; cursor:not-allowed;':''}" ${desabilitado?'disabled':''} title="${titulo}" onclick="enviarParabens('${funcionarioIdEfetivo||''}')">${jaEnviou?'Parabéns enviado':'Parabenizar'}</button>
+    <button class="btn-brass" style="background:rgba(255,255,255,.14); ${desabilitado?'opacity:.5; cursor:not-allowed;':''}" ${desabilitado?'disabled':''} title="${titulo}" onclick="enviarParabens('${funcionarioIdEfetivo||''}','funcionario_mes')">${jaEnviou?'Parabéns enviado':'Parabenizar'}</button>
   `;
 }
 

@@ -43,7 +43,8 @@ function jaEnviouParabens(aniversarianteId) {
   if (!emp) return false;
   return state.parabens.some(p => p.remetenteId === emp.id && p.aniversarianteId === aniversarianteId);
 }
-async function enviarParabens(aniversarianteId) {
+async function enviarParabens(aniversarianteId, origem) {
+  origem = origem || 'aniversario';
   const emp = getEffectiveEmployee();
   if (!emp) { showToast('Faça login para enviar parabéns.'); return; }
   if (!aniversarianteId) { showToast('Este aniversariante não está vinculado a um funcionário cadastrado.'); return; }
@@ -52,19 +53,20 @@ async function enviarParabens(aniversarianteId) {
   const destinatario = funcionarioPorId(aniversarianteId);
   if (!supabaseClient) {
     const agora = new Date().toISOString();
-    state.parabens.push({ id: uid('pb'), aniversarianteId, remetenteId: emp.id, data: agora });
-    state.notificacoes.push({ id: uid('ntf'), destinatarioId: aniversarianteId, remetenteId: emp.id, tipo: 'parabens', data: agora, lida: false });
+    state.parabens.push({ id: uid('pb'), aniversarianteId, remetenteId: emp.id, data: agora, origem });
+    state.notificacoes.push({ id: uid('ntf'), destinatarioId: aniversarianteId, remetenteId: emp.id, tipo: 'parabens', data: agora, lida: false, texto: origem === 'funcionario_mes' ? `${emp.nome} parabenizou você por ser o Funcionário do Mês! 🏆` : `${emp.nome} desejou feliz aniversário para você! 🎉` });
   } else {
-    const { data, error } = await supabaseClient.from('parabens').insert({ aniversariante_id: aniversarianteId, remetente_id: emp.id }).select().single();
+    const { data, error } = await supabaseClient.from('parabens').insert({ aniversariante_id: aniversarianteId, remetente_id: emp.id, origem }).select().single();
     if (error) {
       if (error.code === '23505') showToast('Você já enviou parabéns para essa pessoa.');
       else showToast('Não foi possível enviar os parabéns: ' + error.message);
       return;
     }
-    state.parabens.push({ id: data.id, aniversarianteId: data.aniversariante_id, remetenteId: data.remetente_id, data: data.enviado_em });
+    state.parabens.push({ id: data.id, aniversarianteId: data.aniversariante_id, remetenteId: data.remetente_id, data: data.enviado_em, origem: data.origem });
   }
   showToast(`🎉 Parabéns enviados para ${destinatario ? destinatario.nome.split(' ')[0] : 'colaborador'}!`);
   renderAniversariantes();
+  renderFuncionarioMes();
   renderHeader();
   if (state.currentView === 'notificacoes') renderNotificacoesView();
 }
@@ -96,10 +98,17 @@ async function marcarTodasNotificacoesLidas() {
   }
 }
 function textoNotificacao(n) {
-  const remetente = funcionarioPorId(n.remetenteId);
-  const nomeRem = remetente ? remetente.nome.split(' ')[0] : 'Alguém';
-  if (n.tipo === 'parabens') return `🎉 ${nomeRem} desejou feliz aniversário para você!`;
-  return n.texto || 'Nova notificação';
+  // O texto já vem pronto do banco (montado no momento do envio, com o
+  // nome de quem enviou e o motivo certo — aniversário ou Funcionário do
+  // Mês). Só cai no texto genérico se for uma notificação antiga, salva
+  // antes dessa melhoria.
+  if (n.texto) return n.texto;
+  if (n.tipo === 'parabens') {
+    const remetente = funcionarioPorId(n.remetenteId);
+    const nomeRem = remetente ? remetente.nome.split(' ')[0] : 'Alguém';
+    return `🎉 ${nomeRem} desejou feliz aniversário para você!`;
+  }
+  return 'Nova notificação';
 }
 function abrirPerfilFuncionario(id) {
   const f = funcionarioPorId(id);

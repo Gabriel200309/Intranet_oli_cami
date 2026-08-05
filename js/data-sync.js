@@ -193,7 +193,7 @@ async function carregarParabens() {
   if (!isAdmin()) query = query.or(`remetente_id.eq.${emp.id},aniversariante_id.eq.${emp.id}`);
   const { data, error } = await query;
   if (error) { console.error('Erro ao carregar parabéns:', error.message); return; }
-  state.parabens = (data || []).map(p => ({ id: p.id, aniversarianteId: p.aniversariante_id, remetenteId: p.remetente_id, data: p.enviado_em }));
+  state.parabens = (data || []).map(p => ({ id: p.id, aniversarianteId: p.aniversariante_id, remetenteId: p.remetente_id, data: p.enviado_em, origem: p.origem || 'aniversario' }));
 }
 
 async function carregarNotificacoes() {
@@ -216,7 +216,7 @@ function assinarNotificacoesRealtime() {
       state.notificacoes.unshift({ id: n.id, destinatarioId: n.destinatario_id, remetenteId: n.remetente_id, tipo: n.tipo, texto: n.texto, data: n.criado_em, lida: n.lida });
       renderHeader();
       if (state.currentView === 'notificacoes') renderNotificacoesView();
-      showToast(textoNotificacao(n.tipo === 'parabens' ? { tipo: n.tipo, remetenteId: n.remetente_id } : { tipo: n.tipo, texto: n.texto }));
+      showToast(textoNotificacao({ tipo: n.tipo, texto: n.texto, remetenteId: n.remetente_id }));
     })
     .subscribe();
 }
