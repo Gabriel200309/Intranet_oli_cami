@@ -15,6 +15,24 @@ function tempoRelativo(iso) {
   return `há ${d} dia${d===1?'':'s'}`;
 }
 function funcionarioPorId(id) { return state.employees.find(e => e.id === id); }
+/* Aniversariantes do mês, calculados direto da data de nascimento de cada
+   funcionário (funcionarios.nascimento) — atualiza sozinho conforme o mês
+   muda, sem precisar de cadastro manual separado. Ordenado por dia, com
+   ehHoje=true para quem faz aniversário hoje (usado para dar destaque). */
+function aniversariantesDoMes() {
+  const hoje = new Date();
+  const mesAtual = hoje.getMonth() + 1;
+  const diaHoje = hoje.getDate();
+  return state.employees
+    .filter(e => e.nascimento && /^\d{2}\/\d{2}\/\d{4}$/.test(e.nascimento))
+    .map(e => {
+      const [d, m] = e.nascimento.split('/').map(Number);
+      return { dia: d, mes: m, funcionarioId: e.id, nome: e.nome, cargo: e.cargo, fotoUrl: e.foto_url };
+    })
+    .filter(x => x.mes === mesAtual)
+    .sort((a, b) => a.dia - b.dia)
+    .map(x => ({ ...x, ehHoje: x.dia === diaHoje, data: `${String(x.dia).padStart(2,'0')}/${String(x.mes).padStart(2,'0')}` }));
+}
 function jaEnviouParabens(aniversarianteId) {
   const emp = getEffectiveEmployee();
   if (!emp) return false;

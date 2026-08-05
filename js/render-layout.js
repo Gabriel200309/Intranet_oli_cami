@@ -307,19 +307,29 @@ function renderAniversariantes() {
   const el = document.getElementById('aniversariantesList');
   if (!el) return;
   const meuId = getEffectiveEmployee() ? getEffectiveEmployee().id : null;
-  el.innerHTML = state.aniversariantes.map((p,i) => {
-    const jaEnviou = p.funcionarioId ? jaEnviouParabens(p.funcionarioId) : false;
-    const souEu = p.funcionarioId && p.funcionarioId === meuId;
-    const desabilitado = !p.funcionarioId || jaEnviou || souEu;
-    const titulo = !p.funcionarioId ? 'Aniversariante sem vínculo de funcionário' : souEu ? 'Você não pode parabenizar a si mesmo' : jaEnviou ? 'Parabéns já enviado' : 'Enviar parabéns';
+  const lista = aniversariantesDoMes();
+  if (!lista.length) {
+    el.innerHTML = `<div style="font-size:12px; color:var(--text-3); padding:8px 0;">Ninguém faz aniversário este mês.</div>`;
+    return;
+  }
+  el.innerHTML = lista.map((p,i) => {
+    const jaEnviou = jaEnviouParabens(p.funcionarioId);
+    const souEu = p.funcionarioId === meuId;
+    const desabilitado = jaEnviou || souEu;
+    const titulo = souEu ? 'Você não pode parabenizar a si mesmo' : jaEnviou ? 'Parabéns já enviado' : 'Enviar parabéns';
+    const tamanho = p.ehHoje ? 36 : 30;
+    const avatarStyle = `width:${tamanho}px; height:${tamanho}px; font-size:11px; cursor:pointer; ${p.ehHoje?'box-shadow:0 0 0 2px var(--brass);':''}`;
+    const avatar = p.fotoUrl
+      ? `<img src="${esc(p.fotoUrl)}" alt="" style="${avatarStyle} border-radius:50%; object-fit:cover; display:block;">`
+      : `<div class="avatar" style="${avatarStyle}">${esc(initials(p.nome))}</div>`;
     return `
-    <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:${i<state.aniversariantes.length-1?'1px solid var(--border)':'none'};">
-      <div class="avatar" style="width:30px; height:30px; font-size:11px; cursor:pointer;" onclick="${p.funcionarioId?`abrirPerfilFuncionario('${p.funcionarioId}')`:''}">${initials(p.nome)}</div>
+    <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:${i<lista.length-1?'1px solid var(--border)':'none'}; ${p.ehHoje?'background:var(--brass-soft); margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:8px;':''}">
+      <div onclick="abrirPerfilFuncionario('${p.funcionarioId}')">${avatar}</div>
       <div style="flex:1;">
-        <div style="font-size:12.5px; font-weight:700;">${esc(p.nome)}</div>
+        <div style="font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:6px;">${esc(p.nome)} ${p.ehHoje?'<span class="status-pill" style="background:var(--brass); color:var(--navy);">Hoje <i class="fa-solid fa-cake-candles"></i></span>':`<span style="font-weight:600; color:var(--text-3); font-size:10.5px;">${esc(p.data)}</span>`}</div>
         <div style="font-size:11px; color:var(--text-3);">${esc(p.cargo)}</div>
       </div>
-      <button class="congrats-btn" ${desabilitado?'disabled style="opacity:.4; cursor:not-allowed;"':''} title="${titulo}" onclick="enviarParabens('${p.funcionarioId||''}')"><i class="fa-solid fa-cake-candles" style="font-size:13px; ${jaEnviou?'color:var(--success);':''}"></i></button>
+      <button class="congrats-btn" ${desabilitado?'disabled style="opacity:.4; cursor:not-allowed;"':''} title="${titulo}" onclick="enviarParabens('${p.funcionarioId}')"><i class="fa-solid fa-cake-candles" style="font-size:13px; ${jaEnviou?'color:var(--success);':''}"></i></button>
     </div>
   `;}).join('');
 }

@@ -439,20 +439,20 @@ function renderNavAniversariantes() {
   const el = document.getElementById('navAniversariantesList');
   if (!el) return;
   const meuId = getEffectiveEmployee() ? getEffectiveEmployee().id : null;
-  el.innerHTML = state.aniversariantes.map(p => {
-    const jaEnviou = p.funcionarioId ? jaEnviouParabens(p.funcionarioId) : false;
-    const souEu = p.funcionarioId && p.funcionarioId === meuId;
-    const desabilitado = !p.funcionarioId || jaEnviou || souEu;
+  el.innerHTML = aniversariantesDoMes().map(p => {
+    const jaEnviou = jaEnviouParabens(p.funcionarioId);
+    const souEu = p.funcionarioId === meuId;
+    const desabilitado = jaEnviou || souEu;
     return `
-    <div class="admin-list-item">
+    <div class="admin-list-item" style="${p.ehHoje?'border-color:var(--brass); background:var(--brass-soft);':''}">
       <div style="display:flex; align-items:center; gap:10px;">
-        <div class="avatar" style="width:30px; height:30px; font-size:11px;">${esc(initials(p.nome))}</div>
+        <div class="avatar" style="width:30px; height:30px; font-size:11px; ${p.ehHoje?'box-shadow:0 0 0 2px var(--brass);':''}">${esc(initials(p.nome))}</div>
         <div>
-          <div style="font-size:13px; font-weight:700;">${esc(p.nome)}</div>
+          <div style="font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px;">${esc(p.nome)} ${p.ehHoje?'<span class="status-pill" style="background:var(--brass); color:var(--navy);">Hoje 🎂</span>':''}</div>
           <div class="admin-list-meta">${esc(p.cargo)} · ${esc(p.data)}</div>
         </div>
       </div>
-      <button class="congrats-btn" ${desabilitado?'disabled style="opacity:.4; cursor:not-allowed;"':''} title="${jaEnviou?'Parabéns já enviado':'Enviar parabéns'}" onclick="enviarParabens('${p.funcionarioId||''}')"><i class="fa-solid fa-cake-candles" style="font-size:13px; ${jaEnviou?'color:var(--success);':''}"></i></button>
+      <button class="congrats-btn" ${desabilitado?'disabled style="opacity:.4; cursor:not-allowed;"':''} title="${jaEnviou?'Parabéns já enviado':'Enviar parabéns'}" onclick="enviarParabens('${p.funcionarioId}')"><i class="fa-solid fa-cake-candles" style="font-size:13px; ${jaEnviou?'color:var(--success);':''}"></i></button>
     </div>
   `;}).join('') || `<div style="font-size:12.5px; color:var(--text-3);">Nenhum aniversariante este mês.</div>`;
 }
