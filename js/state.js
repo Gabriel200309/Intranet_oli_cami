@@ -12,6 +12,7 @@ const state = {
   avisos: JSON.parse(JSON.stringify(AVISOS_SEED)),
   metas: JSON.parse(JSON.stringify(METAS_GESTAO_SEED)),
   carteiras: JSON.parse(JSON.stringify(CARTEIRAS_SEED)),
+  setores: [...SETORES], // editável pelo administrador (Administração > Setores); SETORES é só o valor inicial/local
 
   cursos: JSON.parse(JSON.stringify(CURSOS_SEED)),
   progressoCursos: {}, // { [employeeId]: { [cursoId]: { aulasConcluidas:[], dataInicio, dataConclusao, percentual } } }

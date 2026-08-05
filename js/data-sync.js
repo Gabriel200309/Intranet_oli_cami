@@ -76,6 +76,12 @@ async function carregarSinalizacoes() {
   });
 }
 
+async function carregarSetores() {
+  const { data, error } = await supabaseClient.from('setores').select('*').order('nome');
+  if (error) { console.error('Erro ao carregar setores:', error.message); return; }
+  state.setores = (data || []).map(s => s.nome);
+}
+
 async function carregarPermissoesEGestores() {
   const [{ data: permData, error: permErr }, { data: gestData, error: gestErr }] = await Promise.all([
     supabaseClient.from('permissoes_setor').select('*'),
@@ -91,13 +97,13 @@ async function carregarPermissoesEGestores() {
         verSinalizacoesTodas: p.ver_sinalizacoes_todas, verFuncionariosTodos: p.ver_funcionarios_todos,
       };
     });
-    SETORES.forEach(s => { if (!obj[s]) obj[s] = { acessoAcordos:false, acessoJuridico:false, acessoRH:false, acessoFinanceiro:false, verMetasGeral:false, verSinalizacoesTodas:false, verFuncionariosTodos:false }; });
+    state.setores.forEach(s => { if (!obj[s]) obj[s] = { acessoAcordos:false, acessoJuridico:false, acessoRH:false, acessoFinanceiro:false, verMetasGeral:false, verSinalizacoesTodas:false, verFuncionariosTodos:false }; });
     state.permissoesSetor = obj;
   }
   if (gestErr) { console.error('Erro ao carregar gestores:', gestErr.message); }
   else {
     const obj = {};
-    SETORES.forEach(s => obj[s] = []);
+    state.setores.forEach(s => obj[s] = []);
     (gestData || []).forEach(g => { (obj[g.setor] ||= []).push(g.funcionario_id); });
     state.gestoresSetor = obj;
   }
@@ -220,6 +226,7 @@ function assinarNotificacoesRealtime() {
    também porque aparecem no dashboard principal. */
 async function sincronizarDadosSupabase() {
   if (!supabaseClient) return;
+  await carregarSetores(); // precisa terminar antes: carregarPermissoesEGestores() usa state.setores
   await Promise.all([
     carregarModulos(), carregarLinks(), carregarFerramentas(), carregarAudiencias(),
     carregarAvisos(), carregarCarteiras(), carregarClassificacoes(), carregarSinalizacoes(),

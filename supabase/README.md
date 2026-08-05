@@ -18,7 +18,9 @@ supabase-project/
 │   │   ├── 0007_rls_policies.sql             # Row Level Security de TODAS as tabelas
 │   │   ├── 0008_triggers.sql                 # progresso automático de cursos + notificação de parabéns
 │   │   ├── 0009_realtime.sql                 # habilita Realtime em notificações e chat
-│   │   └── 0010_funcionario_mes_foto.sql     # foto do funcionário do mês
+│   │   ├── 0010_funcionario_mes_foto.sql     # foto do funcionário do mês
+│   │   ├── 0011_storage_buckets.sql          # buckets "cursos" e "avatares" + políticas
+│   │   └── 0012_setores_dinamicos.sql        # setores: de enum fixo para tabela editável (CRUD)
 │   ├── seed.sql                              # dados de configuração/exemplo
 │   └── functions/
 │       ├── analisar-erro-ia/

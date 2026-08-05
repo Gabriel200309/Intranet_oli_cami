@@ -8,6 +8,7 @@ function setVal(id, v) { const el = document.getElementById(id); if (el) el.valu
 
 const ADMIN_TABS = [
   { key: 'acessoRapido', label: 'Acesso rápido', icon: 'fa-arrow-up-right-from-square' },
+  { key: 'setores', label: 'Setores', icon: 'fa-sitemap' },
   { key: 'funcionarios', label: 'Funcionários', icon: 'fa-user-plus' },
   { key: 'audiencias', label: 'Audiências', icon: 'fa-gavel' },
   { key: 'avisos', label: 'Avisos', icon: 'fa-thumbtack' },
@@ -25,7 +26,7 @@ const ADMIN_TABS = [
   { key: 'conexaoSupabase', label: 'Conexão Supabase', icon: 'fa-database' },
 ];
 const ADMIN_TITLES = {
-  acessoRapido: 'Links do Acesso Rápido', funcionarios: 'Cadastro de funcionários', audiencias: 'Pauta de audiências',
+  acessoRapido: 'Links do Acesso Rápido', setores: 'Setores do escritório', funcionarios: 'Cadastro de funcionários', audiencias: 'Pauta de audiências',
   avisos: 'Avisos importantes', metas: 'Gestão de Metas — Geral, Setor e Carteira', funcionarioMes: 'Funcionário do mês',
   aniversariantes: 'Aniversariantes', links: 'Links dos sistemas da empresa', ferramentas: 'Ferramentas acessadas pela equipe',
   classificacoes: 'Classificações de Sinalização', permissoes: 'Permissões e Gestores por Setor', gruposChat: 'Grupos de chat internos',
@@ -61,6 +62,7 @@ function renderAdminTabContent() {
   if (!c) return;
   const tab = state.adminTab;
   if (tab === 'acessoRapido') return renderAdminAcessoRapido(c);
+  if (tab === 'setores') return renderAdminSetores(c);
   if (tab === 'funcionarios') return renderAdminFuncionarios(c);
   if (tab === 'audiencias') return renderAdminAudiencias(c);
   if (tab === 'avisos') return renderAdminAvisos(c);
@@ -92,7 +94,7 @@ function renderAdminAcessoRapido(c) {
               <input id="modlink-${m.id}" value="${esc(m.link)}" placeholder="https://..." style="flex:1; min-width:160px; border:1px solid var(--border); background:var(--surface-2); border-radius:8px; padding:7px 10px; font-size:12.5px; color:var(--text); font-family:inherit; outline:none;">
               <select id="modsetor-${m.id}" style="border:1px solid var(--border); background:var(--surface-2); border-radius:8px; padding:7px 10px; font-size:12.5px; color:var(--text); font-family:inherit; outline:none;">
                 <option value="">Módulo geral (todos os setores)</option>
-                ${SETORES.map(s => `<option value="${esc(s)}" ${m.setor===s?'selected':''}>Setor: ${esc(s)}</option>`).join('')}
+                ${state.setores.map(s => `<option value="${esc(s)}" ${m.setor===s?'selected':''}>Setor: ${esc(s)}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -116,6 +118,77 @@ async function saveModuleLink(id) {
   }
 }
 
+/* --- SETORES ---
+   Nota: os 4 setores com toggle dedicado em "Permissões de acesso"
+   (Acordos, Jurídico, RH, Financeiro) também têm um item próprio no menu
+   principal (NAV) e uma coluna própria de acesso cruzado no banco. Criar
+   ou excluir setores novos funciona plenamente; renomear um desses 4
+   específicos não atualiza o rótulo do menu principal nem a coluna de
+   acesso cruzado (que continuam com o nome antigo no código) — para
+   esses casos, prefira criar um setor novo em vez de renomear um dos 4. */
+function renderAdminSetores(c) {
+  const ed = state.editing.setor;
+  c.innerHTML = `
+    <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;">Setores usados em todo o sistema (funcionários, módulos, metas, sinalizações, etc.). Renomear um setor atualiza automaticamente tudo que já usa esse nome. Só é possível excluir um setor que não está mais em uso em nenhum cadastro.</div>
+    <div class="form-grid" style="grid-template-columns:2fr 1fr;">
+      <div class="form-field"><label>${ed ? 'Novo nome do setor' : 'Nome do novo setor'}</label><input id="st-nome" value="${ed?esc(ed):''}" placeholder="Ex: Marketing"></div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="admin-add-btn" onclick="submitSetor()"><i class="fa-solid fa-plus"></i> ${ed?'Salvar novo nome':'Adicionar setor'}</button>
+      ${ed ? `<button class="admin-cancel-btn" onclick="cancelEdit('setor')">Cancelar</button>` : ''}
+    </div>
+    <div class="admin-section-label">Setores cadastrados (${state.setores.length})</div>
+    ${state.setores.map(s => `
+      <div class="admin-list-item">
+        <div style="font-size:13px; font-weight:700;"><i class="fa-solid fa-building" style="color:var(--text-3); margin-right:8px;"></i>${esc(s)}</div>
+        <div style="display:flex; gap:6px;">
+          <button class="admin-edit-btn" onclick="editSetor('${esc(s)}')"><i class="fa-solid fa-pen" style="font-size:12px;"></i></button>
+          <button class="admin-del-btn" onclick="removeSetor('${esc(s)}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+function editSetor(nome) { state.editing.setor = nome; renderAdminTabContent(); }
+async function submitSetor() {
+  const novoNome = val('st-nome').trim();
+  if (!novoNome) { showToast('Informe o nome do setor.'); return; }
+  const ed = state.editing.setor;
+  if (ed === novoNome) { state.editing.setor = null; renderAdminTabContent(); return; }
+  if (state.setores.includes(novoNome)) { showToast('Já existe um setor com esse nome.'); return; }
+  if (!supabaseClient) {
+    if (ed) { const i = state.setores.indexOf(ed); state.setores[i] = novoNome; showToast('Setor renomeado!'); }
+    else { state.setores.push(novoNome); showToast('Setor adicionado!'); }
+    state.editing.setor = null;
+    renderAdminTabContent();
+    return;
+  }
+  const { error } = ed
+    ? await supabaseClient.from('setores').update({ nome: novoNome }).eq('nome', ed)
+    : await supabaseClient.from('setores').insert({ nome: novoNome });
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Setor renomeado! Os cadastros que usavam o nome antigo já foram atualizados.' : 'Setor adicionado!');
+  state.editing.setor = null;
+  await carregarSetores();
+  await Promise.all([carregarPermissoesEGestores(), carregarFuncionarios(), carregarModulos(), carregarMetas(), carregarSinalizacoes()]);
+  renderAdminTabContent();
+  renderAll();
+}
+async function removeSetor(nome) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('setores').delete().eq('nome', nome);
+    if (error) {
+      const emUso = error.code === '23503';
+      showToast(emUso ? `Não é possível excluir "${nome}": ainda há cadastros (funcionário, módulo, meta, etc.) usando esse setor.` : 'Não foi possível excluir: ' + error.message);
+      return;
+    }
+    await carregarSetores();
+  } else {
+    state.setores = state.setores.filter(s => s !== nome);
+  }
+  renderAdminTabContent();
+}
+
 
 /* --- FUNCIONÁRIOS --- */
 function renderAdminFuncionarios(c) {
@@ -137,7 +210,7 @@ function renderAdminFuncionarios(c) {
       </div>
       <div class="form-field"><label>Nome completo</label><input id="f-nome" value="${esc(e?e.nome:'')}" placeholder="Ex: Ana Souza"></div>
       <div class="form-field"><label>Número (matrícula)</label><input id="f-numero" value="${esc(e?e.numero:'')}" placeholder="Ex: 0012"></div>
-      <div class="form-field"><label>Setor</label><select id="f-setor">${SETORES.map(s=>`<option ${e&&e.setor===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="form-field"><label>Setor</label><select id="f-setor">${state.setores.map(s=>`<option ${e&&e.setor===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div class="form-field"><label>Cargo</label><input id="f-cargo" value="${esc(e?e.cargo:'')}" placeholder="Ex: Negociadora"></div>
       <div class="form-field"><label>Nível de acesso</label><select id="f-nivel">${CARGOS_ACESSO.map(cg=>`<option ${e&&e.nivel===cg?'selected':''}>${cg}</option>`).join('')}</select></div>
       <div class="form-field"><label>Data de nascimento</label><input id="f-nasc" value="${esc(e?e.nascimento:'')}" placeholder="DD/MM/AAAA"></div>
@@ -376,7 +449,7 @@ function renderAdminMetas(c) {
         <select id="mt-status">${METAS_STATUS.map(s => `<option ${m&&m.status===s?'selected':''}>${s}</option>`).join('')}</select>
       </div>
       <div class="form-field" id="mt-setor-field" style="display:${tipoAtual!=='Geral'?'flex':'none'};"><label>Setor</label>
-        <select id="mt-setor">${SETORES.map(s => `<option value="${s}" ${m&&m.setor===s?'selected':''}>${s}</option>`).join('')}</select>
+        <select id="mt-setor">${state.setores.map(s => `<option value="${s}" ${m&&m.setor===s?'selected':''}>${s}</option>`).join('')}</select>
       </div>
       <div class="form-field" id="mt-carteira-field" style="display:${tipoAtual==='Carteira'?'flex':'none'};"><label>Carteira</label>
         <div style="display:flex; gap:6px;">
@@ -798,7 +871,7 @@ function renderAdminPermissoes(c) {
           </tr>
         </thead>
         <tbody>
-          ${SETORES.map(setor => {
+          ${state.setores.map(setor => {
             const qtdFuncionarios = state.employees.filter(e => e.setor === setor).length;
             return `
             <tr>
@@ -819,7 +892,7 @@ function renderAdminPermissoes(c) {
 
     <div class="admin-section-label">Gestores por setor (metas)</div>
     <div class="admin-list-meta" style="margin-bottom:14px;">Um gestor enxerga <strong>todas</strong> as metas do setor que administra — inclusive metas de Carteira/individuais de colegas. Colaboradores comuns só veem metas Gerais, as próprias e a meta coletiva do próprio setor (nunca a carteira individual de um colega). Marque abaixo quem administra cada setor.</div>
-    ${SETORES.map(setor => `
+    ${state.setores.map(setor => `
       <div class="card" style="padding:14px 16px; margin-bottom:10px;">
         <div style="font-size:12.5px; font-weight:800; margin-bottom:8px;">${esc(setor)}</div>
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:6px;">
@@ -880,7 +953,7 @@ function renderAdminGruposChat(c) {
       <div class="form-field" style="grid-column:span 2;"><label>Preencher membros automaticamente por setor (opcional)</label>
         <select id="gc-setor" onchange="autoSelecionarSetor(this.value)">
           <option value="">— Selecionar manualmente —</option>
-          ${SETORES.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+          ${state.setores.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
         </select>
       </div>
     </div>

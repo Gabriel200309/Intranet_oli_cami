@@ -80,7 +80,7 @@ function renderSinalizacoesView() {
             <select id="sn-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
           </div>
           <div class="form-field"><label>Setor</label>
-            <select id="sn-setor">${SETORES.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
+            <select id="sn-setor">${state.setores.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
           </div>
           <div class="form-field"><label>Classificação</label>
             <select id="sn-classificacao">
