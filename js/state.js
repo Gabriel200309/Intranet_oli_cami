@@ -61,6 +61,16 @@ const state = {
   novaSinalizacao: false,
   classificacoes: JSON.parse(JSON.stringify(CLASSIFICACOES_SEED)),
 
+  /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
+  avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data }
+  atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data }
+  novaAvaliacaoQualidade: false,
+  novoAtendimentoReferencia: false,
+  filtroEficiencia: {
+    periodoInicio: null, periodoFim: null, // null = sem filtro de período (mostra tudo)
+    setor: "", colaboradorId: "", tipoErro: "", status: "",
+  },
+
   permissoesSetor: JSON.parse(JSON.stringify(PERMISSOES_SETOR_SEED)),
   gestoresSetor: JSON.parse(JSON.stringify(GESTORES_SETOR_SEED)),
   viewingAsId: null, // id de funcionário simulado — recurso exclusivo do administrador, para testes

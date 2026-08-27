@@ -20,7 +20,7 @@ function renderSidebar() {
       `;}).join('')}
       <div style="height:1px; background:var(--border); margin:10px 16px;"></div>
       ${!state.collapsed ? `<div style="padding:0 16px 6px; font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3);">Ferramentas</div>` : ''}
-      ${NAV_EXTRA.map(n => `
+      ${NAV_EXTRA.filter(n => n.view !== 'eficiencia' || podeVerPainelEficiencia()).map(n => `
         <button class="nav-item ${state.activeNav===n.label?'active':''}" onclick="setActiveNav('${n.label}')">
           ${icon(n.icon)} ${state.collapsed ? '' : esc(n.label)}
           ${(!state.collapsed && n.view==='sinalizacoes' && state.sinalizacoes.filter(s=>s.status==='aberta').length) ? `<span style="margin-left:auto; background:var(--danger); color:#fff; font-size:10px; font-weight:800; border-radius:100px; padding:1px 7px;">${state.sinalizacoes.filter(s=>s.status==='aberta').length}</span>` : ''}

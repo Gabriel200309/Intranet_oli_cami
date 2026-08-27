@@ -7,12 +7,14 @@ function toggleNovaSinalizacao() { state.novaSinalizacao = !state.novaSinalizaca
 async function submitSinalizacao() {
   if (!isAdmin()) { showToast('Só administradores podem registrar sinalizações.'); return; }
   const colaboradorId = val('sn-colaborador'), titulo = val('sn-titulo'), setor = val('sn-setor'), classificacaoId = val('sn-classificacao'), descricao = val('sn-descricao');
+  const tipoErro = val('sn-tipo-erro'), prazo = val('sn-prazo');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!titulo.trim() || !colaboradorEmp) { showToast('Informe ao menos o título e o colaborador sinalizado.'); return; }
   if (!supabaseClient) {
     state.sinalizacoes.unshift({
       id: uid('s'), titulo, colaborador: colaboradorEmp.nome, setor: setor || 'Geral', classificacaoId: classificacaoId || (state.classificacoes[0] && state.classificacoes[0].id),
-      status: 'aberta', descricao, autor: 'Você',
+      status: 'aberta', descricao, autor: 'Você', tipoErro: tipoErro || '', prazo: prazo || null, resolvidoEm: null,
+      criadoEm: new Date().toISOString(),
       data: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
     });
     state.novaSinalizacao = false;
@@ -24,7 +26,7 @@ async function submitSinalizacao() {
   const payload = {
     titulo, colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome,
     setor: setor || colaboradorEmp.setor, classificacao_id: classificacaoId || (state.classificacoes[0] && state.classificacoes[0].id) || null,
-    descricao, autor_id: state.currentUser.id,
+    descricao, autor_id: state.currentUser.id, tipo_erro: tipoErro || null, prazo: prazo || null,
   };
   const { error } = await supabaseClient.from('sinalizacoes').insert(payload);
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
@@ -39,11 +41,15 @@ async function resolverSinalizacao(id) {
   if (!s) return;
   const novoStatus = s.status === 'resolvida' ? 'aberta' : 'resolvida';
   s.status = novoStatus;
+  if (!supabaseClient) s.resolvidoEm = novoStatus === 'resolvida' ? new Date().toISOString() : null;
   renderSinalizacoesView();
   renderSidebar();
   if (supabaseClient) {
     const { error } = await supabaseClient.from('sinalizacoes').update({ status: novoStatus }).eq('id', id);
-    if (error) showToast('Não foi possível salvar no banco: ' + error.message);
+    if (error) { showToast('Não foi possível salvar no banco: ' + error.message); return; }
+    await carregarSinalizacoes();
+    renderSinalizacoesView();
+    renderSidebar();
   }
 }
 async function removerSinalizacao(id) {
@@ -93,6 +99,14 @@ function renderSinalizacoesView() {
               ${state.classificacoes.map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('')}
             </select>
           </div>
+          <div class="form-field"><label>Tipo de erro <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
+            <select id="sn-tipo-erro">
+              <option value="">Não classificar</option>
+              ${TIPOS_ERRO_SINALIZACAO.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-field"><label>Prazo para resolver <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
+            <input id="sn-prazo" type="date"></div>
           <div class="form-field" style="grid-column:span 2;"><label>Descrição</label><input id="sn-descricao" placeholder="Detalhe o ocorrido"></div>
         </div>
         <div style="display:flex; gap:8px;">
@@ -115,7 +129,7 @@ function renderSinalizacoesView() {
               <span class="status-pill" style="background:var(--surface-2); color:var(--text-2);">${s.status==='resolvida'?'Resolvida':'Aberta'}</span>
             </div>
             <div style="font-size:12px; color:var(--text-2); margin:5px 0;">${esc(s.descricao)}</div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(s.colaborador || '')} · ${esc(s.setor)} · ${esc(s.data)} · sinalizado por ${esc(s.autor)}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(s.colaborador || '')} · ${esc(s.setor)} · ${esc(s.data)} · sinalizado por ${esc(s.autor)}${s.tipoErro ? ` · tipo: ${esc(s.tipoErro)}` : ''}${s.prazo ? ` · prazo: ${esc(formatarDataBR(s.prazo))}` : ''}</div>
           </div>
           ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;">
