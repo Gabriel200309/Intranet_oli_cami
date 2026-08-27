@@ -39,8 +39,19 @@ const NAV_EXTRA = [
   { icon: "target", label: "Metas", view: "metas" },
   { icon: "bell", label: "Notificações", view: "notificacoes" },
   { icon: "flag", label: "Sinalizações de Colaboradores", view: "sinalizacoes" },
+  { icon: "chart", label: "Eficiência, Qualidade e Alertas", view: "eficiencia" },
   { icon: "bug", label: "Reportar Erro", view: "reportarErro" },
   { icon: "help", label: "Manual do Sistema", view: "manual" },
+];
+
+/* Tipos de erro usados para classificar sinalizações e calcular "tipos de
+   erros mais frequentes"/recorrência no Painel de Eficiência, Qualidade e
+   Alertas. Lista fixa e curta de propósito (evita que o mesmo tipo de erro
+   seja digitado de formas diferentes e "espalhe" a contagem). */
+const TIPOS_ERRO_SINALIZACAO = [
+  "Atraso no prazo", "Erro de comunicação", "Erro de procedimento",
+  "Erro de cálculo/financeiro", "Descumprimento de instrução",
+  "Erro de sistema/lançamento", "Outro",
 ];
 
 const NOTIFICACOES = [

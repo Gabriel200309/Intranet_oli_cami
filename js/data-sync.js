@@ -72,8 +72,30 @@ async function carregarSinalizacoes() {
       setor: s.setor, classificacaoId: s.classificacao_id, status: s.status, descricao: s.descricao || '',
       autorId: s.autor_id, autor: autorEmp ? autorEmp.nome : 'Colaborador removido',
       data: s.criado_em ? `${s.criado_em.slice(8,10)}/${s.criado_em.slice(5,7)}` : '',
+      criadoEm: s.criado_em, tipoErro: s.tipo_erro || '', prazo: s.prazo || null, resolvidoEm: s.resolvido_em || null,
     };
   });
+}
+
+async function carregarAvaliacoesQualidade() {
+  const { data, error } = await supabaseClient.from('avaliacoes_qualidade').select('*').order('criado_em', { ascending: false });
+  if (error) { console.error('Erro ao carregar avaliações de qualidade:', error.message); return; }
+  state.avaliacoesQualidade = (data || []).map(a => ({
+    id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
+    periodo: a.periodo, clarezaComunicacao: a.clareza_comunicacao, cordialidade: a.cordialidade,
+    personalizacao: a.personalizacao, proatividade: a.proatividade, cumprimentoPromessas: a.cumprimento_promessas,
+    qualidadeSolucao: a.qualidade_solucao, segurancaCuidado: a.seguranca_cuidado, reclamacoes: a.reclamacoes,
+    observacoes: a.observacoes || '', avaliadorId: a.avaliador_id, data: a.criado_em,
+  }));
+}
+
+async function carregarAtendimentosReferencia() {
+  const { data, error } = await supabaseClient.from('atendimentos_referencia').select('*').order('criado_em', { ascending: false });
+  if (error) { console.error('Erro ao carregar atendimentos de referência:', error.message); return; }
+  state.atendimentosReferencia = (data || []).map(r => ({
+    id: r.id, colaboradorId: r.colaborador_id, colaborador: r.colaborador_nome || '', setor: r.setor,
+    titulo: r.titulo, descricao: r.descricao || '', registradoPorId: r.registrado_por, data: r.criado_em,
+  }));
 }
 
 async function carregarSetores() {
@@ -232,6 +254,7 @@ async function sincronizarDadosSupabase() {
     carregarAvisos(), carregarCarteiras(), carregarClassificacoes(), carregarSinalizacoes(),
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
+    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(),
   ]);
   await carregarProgressoCursos();
   assinarNotificacoesRealtime();
