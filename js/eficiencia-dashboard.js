@@ -1,15 +1,18 @@
 /* ================= PAINEL DE EFICIÊNCIA, QUALIDADE E ALERTAS =================
    Painel de acompanhamento gerencial pedido pela direção: reúne (1) os
    alertas/reincidências já registrados em "Sinalizações de Colaboradores",
-   (2) indicadores numéricos de eficiência operacional, (3) avaliações de
+   (2) indicadores numéricos de eficiência operacional (incluindo o registro
+   manual de atendimentos — início e primeira resposta — que alimenta
+   "Tempo de primeira resposta" e "Chats aguardando"), (3) avaliações de
    Qualidade e Encantamento (nota 0 a 10 por critério) e (4) o registro de
    atendimentos de referência.
 
    Não duplica nenhum cadastro: colaboradores/setores continuam vindo de
    state.employees/state.setores, e "alertas" é a própria tabela de
    sinalizações (ampliada com tipo_erro/prazo/resolvido_em — ver migração
-   0016). Só os dois conceitos que não existiam no sistema (avaliação de
-   qualidade e atendimento de referência) ganharam tabela nova.
+   0016). Os três conceitos que não existiam no sistema (avaliação de
+   qualidade, atendimento de referência e registro de atendimento/chat —
+   ver migração 0017) ganharam tabela nova.
 
    Visível apenas para quem já tem hoje um papel de gestão: administrador,
    quem tem a permissão "ver sinalizações de todas" (RH/Diretoria por
@@ -90,6 +93,30 @@ function atendimentosReferenciaFiltrados() {
     (!f.setor || r.setor === f.setor) &&
     (!f.colaboradorId || r.colaboradorId === f.colaboradorId)
   );
+}
+function atendimentosChatFiltrados() {
+  const f = state.filtroEficiencia;
+  return state.atendimentosChat.filter(a =>
+    eficienciaDataDentroPeriodo(a.iniciadoEm) &&
+    (!f.setor || a.setor === f.setor) &&
+    (!f.colaboradorId || a.colaboradorId === f.colaboradorId)
+  );
+}
+/* Tempo médio de primeira resposta, em minutos, só entre atendimentos que já
+   têm a primeira resposta registrada. null = nenhum atendimento com esse
+   dado no período/filtro selecionado ("Sem dados suficientes"). */
+function calcTempoPrimeiraRespostaMin(lista) {
+  const comResposta = lista.filter(a => a.primeiraRespostaEm && a.iniciadoEm);
+  if (!comResposta.length) return null;
+  const totalMin = comResposta.reduce((acc, a) => acc + (new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000, 0);
+  return Math.round(totalMin / comResposta.length);
+}
+function formatarDuracaoMin(min) {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h < 24) return `${h}h${m ? ' ' + m + 'min' : ''}`;
+  const d = Math.floor(h / 24), hr = h % 24;
+  return `${d}d${hr ? ' ' + hr + 'h' : ''}`;
 }
 
 function calcIndicadoresAlertas() {
@@ -269,6 +296,81 @@ async function removerAtendimentoReferencia(id) {
   renderEficienciaView();
 }
 
+/* ---------------- Atendimentos (chat): início + primeira resposta ---------------- */
+function toggleNovoAtendimentoChat() { state.novoAtendimentoChat = !state.novoAtendimentoChat; renderEficienciaView(); }
+async function submitAtendimentoChat() {
+  if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos.'); return; }
+  const colaboradorId = val('at-colaborador'), cliente = val('at-cliente'), inicioBruto = val('at-inicio');
+  const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
+  if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
+  const iniciadoEm = (inicioBruto ? new Date(inicioBruto) : new Date()).toISOString();
+  if (!supabaseClient) {
+    state.atendimentosChat.unshift({
+      id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
+      cliente, status: 'aguardando', iniciadoEm, primeiraRespostaEm: null, finalizadoEm: null,
+      registradoPorId: state.currentUser.id, data: new Date().toISOString(),
+    });
+    state.novoAtendimentoChat = false;
+    showToast('Atendimento registrado!');
+    renderEficienciaView();
+    return;
+  }
+  const payload = {
+    colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
+    cliente: cliente || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
+  };
+  const { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
+  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
+  state.novoAtendimentoChat = false;
+  showToast('Atendimento registrado!');
+  await carregarAtendimentosChat();
+  renderEficienciaView();
+}
+async function registrarPrimeiraRespostaAtendimento(id) {
+  const agora = new Date().toISOString();
+  if (!supabaseClient) {
+    const a = state.atendimentosChat.find(x => x.id === id);
+    if (a && !a.primeiraRespostaEm) { a.primeiraRespostaEm = agora; if (a.status === 'aguardando') a.status = 'respondido'; }
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ primeira_resposta_em: agora }).eq('id', id);
+  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
+  await carregarAtendimentosChat();
+  renderEficienciaView();
+}
+async function finalizarAtendimentoChat(id) {
+  const agora = new Date().toISOString();
+  if (!supabaseClient) {
+    const a = state.atendimentosChat.find(x => x.id === id);
+    if (a) { a.finalizadoEm = agora; a.status = 'finalizado'; }
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ finalizado_em: agora }).eq('id', id);
+  if (error) { showToast('Não foi possível finalizar: ' + error.message); return; }
+  await carregarAtendimentosChat();
+  renderEficienciaView();
+}
+async function removerAtendimentoChat(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('atendimentos_chat').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.atendimentosChat = state.atendimentosChat.filter(a => a.id !== id);
+  renderEficienciaView();
+}
+function statusAtendimentoChatLabel(status) {
+  if (status === 'respondido') return 'Respondido';
+  if (status === 'finalizado') return 'Finalizado';
+  return 'Aguardando';
+}
+function statusAtendimentoChatCor(status) {
+  if (status === 'finalizado') return 'var(--text-3)';
+  if (status === 'respondido') return 'var(--success)';
+  return 'var(--danger)';
+}
+
 /* ---------------- Render principal ---------------- */
 function renderEficienciaView() {
   if (!podeVerPainelEficiencia()) {
@@ -285,9 +387,17 @@ function renderEficienciaView() {
   const ind = calcIndicadoresAlertas();
   const avaliacoes = avaliacoesQualidadeFiltradas();
   const atendimentosRef = atendimentosReferenciaFiltrados();
+  const atendimentosChat = atendimentosChatFiltrados();
 
   const cumprimentoPrazoValor = ind.comPrazoQtd === 0 ? 'Sem dados suficientes' : String(ind.dentroPrazoQtd);
   const cumprimentoPrazoSub = ind.comPrazoQtd === 0 ? 'Nenhum alerta filtrado tem prazo definido.' : `${ind.dentroPrazoQtd} de ${ind.comPrazoQtd} com prazo definido`;
+
+  const chatsAguardandoQtd = atendimentosChat.filter(a => a.status === 'aguardando').length;
+  const tempoPrimeiraRespostaMin = calcTempoPrimeiraRespostaMin(atendimentosChat);
+  const tempoPrimeiraRespostaValor = tempoPrimeiraRespostaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(tempoPrimeiraRespostaMin);
+  const tempoPrimeiraRespostaSub = tempoPrimeiraRespostaMin === null
+    ? 'Nenhum atendimento com primeira resposta registrada no período/filtro selecionado.'
+    : `Média de ${atendimentosChat.filter(a => a.primeiraRespostaEm).length} atendimento(s) com resposta registrada`;
 
   document.getElementById('content').innerHTML = `
     <div class="section-title" style="margin-bottom:6px;">Eficiência, Qualidade e Alertas</div>
@@ -341,13 +451,56 @@ function renderEficienciaView() {
     </div>
 
     <div class="section-title">Eficiência Operacional</div>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px;">
-      ${metricCard('Tempo de primeira resposta', 'Sem dados suficientes', 'A intranet ainda não registra o horário de início do atendimento nem o da primeira resposta.')}
-      ${metricCard('Chats aguardando', 'Sem dados suficientes', 'O chat interno não possui um status de fila/atendimento (é mensagem direta entre colaboradores).')}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:16px;">
+      ${metricCard('Tempo de primeira resposta', tempoPrimeiraRespostaValor, tempoPrimeiraRespostaSub)}
+      ${metricCard('Chats aguardando', chatsAguardandoQtd)}
       ${metricCard('Prazos cumpridos', cumprimentoPrazoValor, cumprimentoPrazoSub)}
       ${metricCard('Pendências sem retorno', ind.pendentes, 'Alertas com status "aberta" no período/filtro selecionado.')}
       ${metricCard('Alertas solucionados', ind.solucionados)}
       ${metricCard('Erros recorrentes', ind.recorrenciaErros, 'Alertas cujo tipo de erro já ocorreu 2 ou mais vezes no período/filtro selecionado.')}
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
+      <div class="section-title" style="margin-bottom:0;">Registro de Atendimentos <span style="color:var(--text-3); text-transform:none; font-weight:600;">(alimenta o tempo de primeira resposta e os chats aguardando acima)</span></div>
+      ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovoAtendimentoChat()"><i class="fa-solid fa-plus"></i> Novo atendimento</button>` : ''}
+    </div>
+    ${state.novoAtendimentoChat && isAdmin() ? `
+      <div class="card" style="padding:18px; margin-bottom:16px; max-width:760px;">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-field"><label>Colaborador</label>
+            <select id="at-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+          </div>
+          <div class="form-field"><label>Cliente <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-cliente" placeholder="Nome do cliente atendido"></div>
+          <div class="form-field" style="grid-column:span 2;"><label>Início do atendimento</label><input id="at-inicio" type="datetime-local" value="${new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16)}"></div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="admin-add-btn" onclick="submitAtendimentoChat()"><i class="fa-solid fa-plus"></i> Registrar</button>
+          <button class="admin-cancel-btn" onclick="toggleNovoAtendimentoChat()">Cancelar</button>
+        </div>
+      </div>
+    ` : ''}
+    <div class="card" style="overflow:hidden; margin-bottom:24px;">
+      ${atendimentosChat.length ? atendimentosChat.slice(0, 20).map(a => {
+        const podeGerenciar = isAdmin() || a.registradoPorId === (getEffectiveEmployee()||{}).id || isGestorDoSetor(a.setor);
+        const tempoResposta = a.primeiraRespostaEm ? formatarDuracaoMin(Math.round((new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000)) : null;
+        return `
+        <div class="aviso-row" style="cursor:default;">
+          <div class="priority-bar" style="background:${statusAtendimentoChatCor(a.status)};"></div>
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div style="font-size:13px; font-weight:700;">${esc(a.colaborador || '')}${a.cliente ? ' — ' + esc(a.cliente) : ''}</div>
+              <span class="status-pill" style="background:${statusAtendimentoChatCor(a.status)}22; color:${statusAtendimentoChatCor(a.status)};">${statusAtendimentoChatLabel(a.status)}</span>
+            </div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · 1ª resposta em ${tempoResposta}` : ''}</div>
+          </div>
+          ${podeGerenciar ? `
+          <div style="display:flex; gap:6px; align-items:flex-start;">
+            ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar 1ª resposta agora" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
+            ${a.status !== 'finalizado' ? `<button class="admin-edit-btn" title="Finalizar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
+            <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+          </div>` : ''}
+        </div>
+      `;}).join('') : `<div style="padding:24px; text-align:center; color:var(--text-3); font-size:13px;">Nenhum atendimento registrado no período/filtro selecionado.</div>`}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
