@@ -64,8 +64,10 @@ const state = {
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
   avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data }
   atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data }
+  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, status, iniciadoEm, primeiraRespostaEm, finalizadoEm, registradoPorId, data }
   novaAvaliacaoQualidade: false,
   novoAtendimentoReferencia: false,
+  novoAtendimentoChat: false,
   filtroEficiencia: {
     periodoInicio: null, periodoFim: null, // null = sem filtro de período (mostra tudo)
     setor: "", colaboradorId: "", tipoErro: "", status: "",

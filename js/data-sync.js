@@ -98,6 +98,17 @@ async function carregarAtendimentosReferencia() {
   }));
 }
 
+async function carregarAtendimentosChat() {
+  const { data, error } = await supabaseClient.from('atendimentos_chat').select('*').order('iniciado_em', { ascending: false });
+  if (error) { console.error('Erro ao carregar atendimentos (chat):', error.message); return; }
+  state.atendimentosChat = (data || []).map(a => ({
+    id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
+    cliente: a.cliente || '', status: a.status, iniciadoEm: a.iniciado_em,
+    primeiraRespostaEm: a.primeira_resposta_em || null, finalizadoEm: a.finalizado_em || null,
+    registradoPorId: a.registrado_por, data: a.criado_em,
+  }));
+}
+
 async function carregarSetores() {
   const { data, error } = await supabaseClient.from('setores').select('*').order('nome');
   if (error) { console.error('Erro ao carregar setores:', error.message); return; }
@@ -254,7 +265,7 @@ async function sincronizarDadosSupabase() {
     carregarAvisos(), carregarCarteiras(), carregarClassificacoes(), carregarSinalizacoes(),
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
-    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(),
+    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(),
   ]);
   await carregarProgressoCursos();
   assinarNotificacoesRealtime();
