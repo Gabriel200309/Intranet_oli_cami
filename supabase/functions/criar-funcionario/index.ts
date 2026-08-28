@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { nome, numero, setor, cargo, nivel, nascimento, telefone, email, fotoUrl, senha } = body;
+    const { nome, numero, setor, cargo, nivel, nascimento, telefone, email, fotoUrl, senha, equipe_id } = body;
     if (!nome || !setor || !cargo || !nivel || !email) {
       return responder({ erro: "Nome, setor, cargo, nível e e-mail são obrigatórios." }, 400);
     }
@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
       .insert({
         id: novoUsuario.user.id, nome, numero: numero || null, setor, cargo, nivel,
         nascimento: nascimento || null, telefone: telefone || null, email, foto_url: fotoUrl || null,
+        equipe_id: equipe_id || null,
       })
       .select().single();
 

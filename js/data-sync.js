@@ -115,6 +115,14 @@ async function carregarSetores() {
   state.setores = (data || []).map(s => s.nome);
 }
 
+async function carregarEquipes() {
+  const { data, error } = await supabaseClient.from('equipes').select('*').order('nome');
+  if (error) { console.error('Erro ao carregar equipes:', error.message); return; }
+  state.equipes = (data || []).map(eq => ({
+    id: eq.id, nome: eq.nome, setor: eq.setor || '', ordem: eq.ordem, ativa: eq.ativa !== false, criadoEm: eq.criado_em,
+  }));
+}
+
 async function carregarPermissoesEGestores() {
   const [{ data: permData, error: permErr }, { data: gestData, error: gestErr }] = await Promise.all([
     supabaseClient.from('permissoes_setor').select('*'),
@@ -265,7 +273,7 @@ async function sincronizarDadosSupabase() {
     carregarAvisos(), carregarCarteiras(), carregarClassificacoes(), carregarSinalizacoes(),
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
-    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(),
+    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarEquipes(),
   ]);
   await carregarProgressoCursos();
   assinarNotificacoesRealtime();

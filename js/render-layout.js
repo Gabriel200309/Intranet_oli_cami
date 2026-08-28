@@ -412,6 +412,25 @@ function renderModal() {
     `;
     return;
   }
+  if (m.kind === 'confirmEquipe') {
+    document.getElementById('modalRoot').innerHTML = `
+      <div class="modal-overlay" style="z-index:200;" onclick="closeModal()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+          <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
+          <div style="clear:both;"></div>
+          <div style="font-size:17px; font-weight:800; margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation" style="color:var(--danger);"></i> Excluir a equipe "${esc(m.nome)}"?</div>
+          <div style="font-size:13px; color:var(--text-2); line-height:1.5; margin-bottom:18px;">
+            ${m.qtd} colaborador${m.qtd === 1 ? '' : 'es'} ${m.qtd === 1 ? 'pertence' : 'pertencem'} a esta equipe. <strong>Ninguém será excluído</strong> — ${m.qtd === 1 ? 'essa pessoa' : 'essas pessoas'} apenas ${m.qtd === 1 ? 'ficará' : 'ficarão'} sem equipe atribuída.
+          </div>
+          <div style="display:flex; gap:8px; justify-content:center;">
+            <button class="admin-cancel-btn" onclick="closeModal()">Cancelar</button>
+            <button class="admin-add-btn" style="background:var(--danger);" onclick="confirmarRemocaoEquipe()"><i class="fa-solid fa-trash"></i> Excluir mesmo assim</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
   document.getElementById('modalRoot').innerHTML = `
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal-box" onclick="event.stopPropagation()">
