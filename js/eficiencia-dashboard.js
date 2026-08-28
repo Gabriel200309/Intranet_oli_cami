@@ -56,8 +56,26 @@ function setFiltroEficiencia(campo, valor) {
   renderEficienciaView();
 }
 function limparFiltroEficiencia() {
-  state.filtroEficiencia = { periodoInicio: null, periodoFim: null, setor: '', colaboradorId: '', tipoErro: '', status: '', _tocado: true };
+  state.filtroEficiencia = { periodoInicio: null, periodoFim: null, setor: '', equipeId: '', colaboradorId: '', tipoErro: '', status: '', _tocado: true };
   renderEficienciaView();
+}
+
+/* A equipe de um colaborador não é gravada no alerta — o alerta guarda o
+   setor. A equipe é sempre resolvida a partir da equipe ATUAL do
+   colaborador sinalizado (por isso, se alguém mudar de equipe, os alertas
+   antigos dele passam a contar para a equipe nova — ver texto explicativo
+   na tela). Não altera nenhum registro para "preencher" isso retroativamente. */
+function equipeIdDoColaborador(colaboradorId) {
+  if (!colaboradorId) return null;
+  const emp = state.employees.find(e => e.id === colaboradorId);
+  return (emp && emp.equipe_id) || null;
+}
+function passaFiltroEquipe(colaboradorId) {
+  const f = state.filtroEficiencia;
+  if (!f.equipeId) return true;
+  const eqId = equipeIdDoColaborador(colaboradorId);
+  if (f.equipeId === '__sem_equipe__') return !eqId;
+  return eqId === f.equipeId;
 }
 
 function eficienciaDataDentroPeriodo(isoDataOuNull) {
@@ -73,6 +91,7 @@ function sinalizacoesFiltradasEficiencia() {
   return state.sinalizacoes.filter(s =>
     eficienciaDataDentroPeriodo(s.criadoEm) &&
     (!f.setor || s.setor === f.setor) &&
+    passaFiltroEquipe(s.colaboradorId) &&
     (!f.colaboradorId || s.colaboradorId === f.colaboradorId) &&
     (!f.tipoErro || s.tipoErro === f.tipoErro) &&
     (!f.status || s.status === f.status)
@@ -83,6 +102,7 @@ function avaliacoesQualidadeFiltradas() {
   return state.avaliacoesQualidade.filter(a =>
     eficienciaDataDentroPeriodo(a.data) &&
     (!f.setor || a.setor === f.setor) &&
+    passaFiltroEquipe(a.colaboradorId) &&
     (!f.colaboradorId || a.colaboradorId === f.colaboradorId)
   );
 }
@@ -91,6 +111,7 @@ function atendimentosReferenciaFiltrados() {
   return state.atendimentosReferencia.filter(r =>
     eficienciaDataDentroPeriodo(r.data) &&
     (!f.setor || r.setor === f.setor) &&
+    passaFiltroEquipe(r.colaboradorId) &&
     (!f.colaboradorId || r.colaboradorId === f.colaboradorId)
   );
 }
@@ -99,6 +120,7 @@ function atendimentosChatFiltrados() {
   return state.atendimentosChat.filter(a =>
     eficienciaDataDentroPeriodo(a.iniciadoEm) &&
     (!f.setor || a.setor === f.setor) &&
+    passaFiltroEquipe(a.colaboradorId) &&
     (!f.colaboradorId || a.colaboradorId === f.colaboradorId)
   );
 }
@@ -119,15 +141,50 @@ function formatarDuracaoMin(min) {
   return `${d}d${hr ? ' ' + hr + 'h' : ''}`;
 }
 
+/* Ranking "Alertas por equipe": agrupa por EQUIPE (não por setor). Se ainda
+   não houver nenhuma equipe cadastrada, cai de volta para o agrupamento por
+   setor (comportamento anterior) — transição seguindo o pedido de que nada
+   quebre nem fique em branco enquanto o administrador não cadastra as
+   equipes em Administração > Equipes.
+   Regras de ordenação: pontuação (nº de alertas no período/filtro) da
+   maior para a menor; empate é desfeito pela "ordem" cadastrada na equipe
+   (menor primeiro); equipe sem ordem definida vai para o fim, em ordem
+   alfabética. Todas as equipes cadastradas aparecem, mesmo zeradas; um
+   alerta de colaborador sem equipe atribuída cai no grupo "Sem equipe". */
+function calcRankingPorEquipe(alertas) {
+  const usaEquipes = state.equipes.length > 0;
+  if (!usaEquipes) {
+    const porSetorMap = {};
+    alertas.forEach(s => { porSetorMap[s.setor] = (porSetorMap[s.setor] || 0) + 1; });
+    const setoresConhecidos = new Set(state.setores);
+    const porEquipe = state.setores.map(s => ({ nome: s, total: porSetorMap[s] || 0 }))
+      .concat(Object.keys(porSetorMap).filter(s => !setoresConhecidos.has(s)).map(s => ({ nome: s, total: porSetorMap[s] })))
+      .sort((a, b) => b.total - a.total);
+    return { usaEquipes, porEquipe };
+  }
+  const contagemPorEquipeId = {};
+  alertas.forEach(s => {
+    const eqId = equipeIdDoColaborador(s.colaboradorId) || '__sem_equipe__';
+    contagemPorEquipeId[eqId] = (contagemPorEquipeId[eqId] || 0) + 1;
+  });
+  const grupos = state.equipes.map(eq => ({ nome: eq.nome, ordem: eq.ordem, total: contagemPorEquipeId[eq.id] || 0 }));
+  grupos.push({ nome: 'Sem equipe', ordem: null, total: contagemPorEquipeId.__sem_equipe__ || 0 });
+  grupos.sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    const aTemOrdem = a.ordem !== null && a.ordem !== undefined;
+    const bTemOrdem = b.ordem !== null && b.ordem !== undefined;
+    if (aTemOrdem && bTemOrdem) return a.ordem - b.ordem;
+    if (aTemOrdem) return -1;
+    if (bTemOrdem) return 1;
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+  return { usaEquipes, porEquipe: grupos };
+}
+
 function calcIndicadoresAlertas() {
   const alertas = sinalizacoesFiltradasEficiencia();
 
-  const porEquipeMap = {};
-  alertas.forEach(s => { porEquipeMap[s.setor] = (porEquipeMap[s.setor] || 0) + 1; });
-  const setoresConhecidos = new Set(state.setores);
-  const porEquipe = state.setores.map(s => ({ setor: s, total: porEquipeMap[s] || 0 }))
-    .concat(Object.keys(porEquipeMap).filter(s => !setoresConhecidos.has(s)).map(s => ({ setor: s, total: porEquipeMap[s] })))
-    .sort((a, b) => b.total - a.total);
+  const { usaEquipes, porEquipe } = calcRankingPorEquipe(alertas);
 
   const comPrazo = alertas.filter(s => s.prazo);
   const dentroPrazo = comPrazo.filter(s => s.resolvidoEm && String(s.resolvidoEm).slice(0, 10) <= s.prazo);
@@ -147,7 +204,7 @@ function calcIndicadoresAlertas() {
   const recorrenciaErros = alertas.filter(s => s.tipoErro && porTipoMap[s.tipoErro] >= 2).length;
 
   return {
-    alertas, porEquipe, totalAlertas: alertas.length,
+    alertas, porEquipe, usaEquipes, totalAlertas: alertas.length,
     dentroPrazoQtd: dentroPrazo.length, comPrazoQtd: comPrazo.length,
     reincidencias, tiposFrequentes, recorrenciaErros,
     solucionados: alertas.filter(s => s.status === 'resolvida').length,
@@ -178,10 +235,17 @@ function filtrosEficienciaBar() {
       <div class="form-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); margin-bottom:0;">
         <div class="form-field"><label>Período de</label><input type="date" value="${f.periodoInicio || ''}" onchange="setFiltroEficiencia('periodoInicio', this.value || null)"></div>
         <div class="form-field"><label>até</label><input type="date" value="${f.periodoFim || ''}" onchange="setFiltroEficiencia('periodoFim', this.value || null)"></div>
-        <div class="form-field"><label>Equipe</label>
+        <div class="form-field"><label>Setor</label>
           <select onchange="setFiltroEficiencia('setor', this.value)">
-            <option value="" ${!f.setor ? 'selected' : ''}>Todas</option>
+            <option value="" ${!f.setor ? 'selected' : ''}>Todos</option>
             ${state.setores.map(s => `<option value="${esc(s)}" ${f.setor === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-field"><label>Equipe</label>
+          <select onchange="setFiltroEficiencia('equipeId', this.value)">
+            <option value="" ${!f.equipeId ? 'selected' : ''}>Todas</option>
+            ${state.equipes.map(eq => `<option value="${eq.id}" ${f.equipeId === eq.id ? 'selected' : ''}>${esc(eq.nome)}</option>`).join('')}
+            <option value="__sem_equipe__" ${f.equipeId === '__sem_equipe__' ? 'selected' : ''}>Sem equipe</option>
           </select>
         </div>
         <div class="form-field"><label>Colaborador</label>
@@ -416,16 +480,21 @@ function renderEficienciaView() {
     </div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px,1fr)); gap:14px; margin-bottom:24px;">
       <div class="card" style="padding:18px;">
-        <div style="font-weight:700; font-size:13px; margin-bottom:10px;">Alertas por equipe</div>
+        <div style="font-weight:700; font-size:13px; margin-bottom:2px;">Alertas por equipe</div>
+        ${!ind.usaEquipes ? `
+          <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-circle-info"></i> Nenhuma equipe cadastrada ainda — agrupando por setor. Cadastre as equipes em Administração &gt; Equipes para ver o ranking por equipe.</div>
+        ` : `
+          <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;">A equipe de cada alerta é a equipe <strong>atual</strong> do colaborador sinalizado — se ele mudar de equipe, o alerta passa a contar para a equipe nova.</div>
+        `}
         ${ind.porEquipe.length ? ind.porEquipe.map(p => `
           <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-            <div style="flex:1; font-size:12px; color:var(--text-2);">${esc(p.setor)}</div>
+            <div style="flex:1; font-size:12px; color:var(--text-2);">${esc(p.nome)}</div>
             <div style="flex:2; height:8px; background:var(--surface-2); border-radius:8px; overflow:hidden;">
               <div style="height:100%; width:${ind.totalAlertas ? Math.max((p.total / ind.totalAlertas) * 100, p.total ? 4 : 0) : 0}%; background:var(--brass); border-radius:8px;"></div>
             </div>
             <div class="mono" style="font-size:12px; font-weight:800; width:22px; text-align:right;">${p.total}</div>
           </div>
-        `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhum alerta no período/filtro selecionado.</div>`}
+        `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhuma equipe cadastrada.</div>`}
       </div>
       <div class="card" style="padding:18px;">
         <div style="font-weight:700; font-size:13px; margin-bottom:10px;">Tipos de erro mais frequentes</div>

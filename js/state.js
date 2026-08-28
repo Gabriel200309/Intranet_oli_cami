@@ -13,6 +13,7 @@ const state = {
   metas: JSON.parse(JSON.stringify(METAS_GESTAO_SEED)),
   carteiras: JSON.parse(JSON.stringify(CARTEIRAS_SEED)),
   setores: [...SETORES], // editável pelo administrador (Administração > Setores); SETORES é só o valor inicial/local
+  equipes: [], // { id, nome, setor, ordem, ativa, criadoEm } — cadastradas pelo administrador (Administração > Equipes); nenhuma vem pré-cadastrada
 
   cursos: JSON.parse(JSON.stringify(CURSOS_SEED)),
   progressoCursos: {}, // { [employeeId]: { [cursoId]: { aulasConcluidas:[], dataInicio, dataConclusao, percentual } } }
@@ -70,7 +71,7 @@ const state = {
   novoAtendimentoChat: false,
   filtroEficiencia: {
     periodoInicio: null, periodoFim: null, // null = sem filtro de período (mostra tudo)
-    setor: "", colaboradorId: "", tipoErro: "", status: "",
+    setor: "", equipeId: "", colaboradorId: "", tipoErro: "", status: "",
   },
 
   permissoesSetor: JSON.parse(JSON.stringify(PERMISSOES_SETOR_SEED)),

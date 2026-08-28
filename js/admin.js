@@ -9,6 +9,7 @@ function setVal(id, v) { const el = document.getElementById(id); if (el) el.valu
 const ADMIN_TABS = [
   { key: 'acessoRapido', label: 'Acesso rápido', icon: 'fa-arrow-up-right-from-square' },
   { key: 'setores', label: 'Setores', icon: 'fa-sitemap' },
+  { key: 'equipes', label: 'Equipes', icon: 'fa-people-group' },
   { key: 'funcionarios', label: 'Funcionários', icon: 'fa-user-plus' },
   { key: 'audiencias', label: 'Audiências', icon: 'fa-gavel' },
   { key: 'avisos', label: 'Avisos', icon: 'fa-thumbtack' },
@@ -26,7 +27,7 @@ const ADMIN_TABS = [
   { key: 'conexaoSupabase', label: 'Conexão Supabase', icon: 'fa-database' },
 ];
 const ADMIN_TITLES = {
-  acessoRapido: 'Links do Acesso Rápido', setores: 'Setores do escritório', funcionarios: 'Cadastro de funcionários', audiencias: 'Pauta de audiências',
+  acessoRapido: 'Links do Acesso Rápido', setores: 'Setores do escritório', equipes: 'Equipes de trabalho', funcionarios: 'Cadastro de funcionários', audiencias: 'Pauta de audiências',
   avisos: 'Avisos importantes', metas: 'Gestão de Metas — Geral, Setor e Carteira', funcionarioMes: 'Funcionário do mês',
   aniversariantes: 'Aniversariantes', links: 'Links dos sistemas da empresa', ferramentas: 'Ferramentas acessadas pela equipe',
   classificacoes: 'Classificações de Sinalização', permissoes: 'Permissões e Gestores por Setor', gruposChat: 'Grupos de chat internos',
@@ -63,6 +64,7 @@ function renderAdminTabContent() {
   const tab = state.adminTab;
   if (tab === 'acessoRapido') return renderAdminAcessoRapido(c);
   if (tab === 'setores') return renderAdminSetores(c);
+  if (tab === 'equipes') return renderAdminEquipes(c);
   if (tab === 'funcionarios') return renderAdminFuncionarios(c);
   if (tab === 'audiencias') return renderAdminAudiencias(c);
   if (tab === 'avisos') return renderAdminAvisos(c);
@@ -190,6 +192,116 @@ async function removeSetor(nome) {
 }
 
 
+/* --- EQUIPES ---
+   Equipe é uma unidade de trabalho dentro de um setor (ex.: o setor
+   "Acordos" pode conter as equipes Êxitos, Celeste, Delta e Negociações).
+   Setor continua controlando permissões/acesso a módulos, exatamente como
+   hoje — equipe só agrupa colaboradores para o Painel de Eficiência,
+   Qualidade e Alertas (ranking "Alertas por equipe" e filtro por equipe). */
+function qtdColaboradoresDaEquipe(equipeId) {
+  return state.employees.filter(e => e.equipe_id === equipeId).length;
+}
+function renderAdminEquipes(c) {
+  const ed = state.editing.equipe;
+  const eq = ed ? state.equipes.find(x => x.id === ed) : null;
+  const listaOrdenada = state.equipes.slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  c.innerHTML = `
+    <div class="admin-list-meta" style="margin-bottom:14px; max-width:640px;">Equipes são as unidades de trabalho dentro de um setor (ex.: o setor Acordos pode conter as equipes Êxitos, Celeste, Delta e Negociações). O setor continua controlando permissões e acesso a módulos, sem nenhuma mudança — equipe serve para agrupar os alertas no Painel de Eficiência, Qualidade e Alertas.</div>
+    <div class="form-grid" style="grid-template-columns:2fr 1.3fr 1fr;">
+      <div class="form-field"><label>${ed ? 'Novo nome da equipe' : 'Nome da equipe'}</label><input id="eq-nome" value="${eq ? esc(eq.nome) : ''}" placeholder="Ex: Êxitos"></div>
+      <div class="form-field"><label>Setor</label>
+        <select id="eq-setor">
+          <option value="">— Sem setor —</option>
+          ${state.setores.map(s => `<option value="${esc(s)}" ${eq && eq.setor === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-field"><label>Ordem <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="eq-ordem" type="number" min="1" step="1" value="${eq && eq.ordem != null ? eq.ordem : ''}" placeholder="Ex: 1"></div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="admin-add-btn" onclick="submitEquipe()"><i class="fa-solid fa-plus"></i> ${ed ? 'Salvar alterações' : 'Adicionar equipe'}</button>
+      ${ed ? `<button class="admin-cancel-btn" onclick="cancelEdit('equipe')">Cancelar</button>` : ''}
+    </div>
+    <div class="admin-section-label">Equipes cadastradas (${state.equipes.length})</div>
+    ${listaOrdenada.length ? listaOrdenada.map(eqRow => {
+      const qtd = qtdColaboradoresDaEquipe(eqRow.id);
+      return `
+      <div class="admin-list-item">
+        <div>
+          <div style="font-size:13px; font-weight:700;"><i class="fa-solid fa-people-group" style="color:var(--text-3); margin-right:8px;"></i>${esc(eqRow.nome)}</div>
+          <div class="admin-list-meta">${eqRow.setor ? 'Setor: ' + esc(eqRow.setor) : 'Sem setor definido'}${eqRow.ordem != null ? ' · ordem ' + eqRow.ordem : ' · sem ordem definida'} · ${qtd} colaborador${qtd === 1 ? '' : 'es'}</div>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="admin-edit-btn" onclick="editEquipe('${eqRow.id}')"><i class="fa-solid fa-pen" style="font-size:12px;"></i></button>
+          <button class="admin-del-btn" onclick="removeEquipe('${eqRow.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+        </div>
+      </div>
+    `;}).join('') : `<div style="font-size:12.5px; color:var(--text-3); padding:12px 0;">Nenhuma equipe cadastrada ainda. Enquanto não houver equipes, o Painel de Eficiência agrupa os alertas por setor.</div>`}
+  `;
+}
+function editEquipe(id) { state.editing.equipe = id; renderAdminTabContent(); }
+async function submitEquipe() {
+  const nome = val('eq-nome').trim();
+  if (!nome) { showToast('Informe o nome da equipe.'); return; }
+  const setorSel = val('eq-setor') || null;
+  const ordemBruto = val('eq-ordem').trim();
+  let ordem = null;
+  if (ordemBruto !== '') {
+    const n = Number(ordemBruto);
+    if (!Number.isInteger(n) || n < 1) { showToast('A ordem, se informada, precisa ser um número inteiro maior ou igual a 1.'); return; }
+    ordem = n;
+  }
+  const ed = state.editing.equipe;
+  const jaExiste = state.equipes.some(x => x.nome === nome && x.id !== ed);
+  if (jaExiste) { showToast('Já existe uma equipe com esse nome.'); return; }
+  if (!supabaseClient) {
+    if (ed) { const i = state.equipes.findIndex(x => x.id === ed); state.equipes[i] = { ...state.equipes[i], nome, setor: setorSel || '', ordem }; showToast('Equipe atualizada!'); }
+    else { state.equipes.push({ id: uid('eq'), nome, setor: setorSel || '', ordem, ativa: true, criadoEm: new Date().toISOString() }); showToast('Equipe adicionada!'); }
+    state.editing.equipe = null;
+    renderAdminTabContent();
+    renderAll();
+    return;
+  }
+  const payload = { nome, setor: setorSel, ordem };
+  const { error } = ed
+    ? await supabaseClient.from('equipes').update(payload).eq('id', ed)
+    : await supabaseClient.from('equipes').insert(payload);
+  if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
+  showToast(ed ? 'Equipe atualizada!' : 'Equipe adicionada!');
+  state.editing.equipe = null;
+  await carregarEquipes();
+  renderAdminTabContent();
+  renderAll();
+}
+function removeEquipe(id) {
+  const eqRow = state.equipes.find(x => x.id === id);
+  if (!eqRow) return;
+  const qtd = qtdColaboradoresDaEquipe(id);
+  if (qtd > 0) {
+    state.modal = { kind: 'confirmEquipe', id, nome: eqRow.nome, qtd };
+    renderModal();
+    return;
+  }
+  executarRemocaoEquipe(id);
+}
+function confirmarRemocaoEquipe() {
+  const id = state.modal && state.modal.id;
+  closeModal();
+  if (id) executarRemocaoEquipe(id);
+}
+async function executarRemocaoEquipe(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('equipes').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+    await Promise.all([carregarEquipes(), carregarFuncionarios()]);
+  } else {
+    state.equipes = state.equipes.filter(x => x.id !== id);
+    state.employees.forEach(e => { if (e.equipe_id === id) e.equipe_id = null; });
+  }
+  showToast('Equipe excluída. Os colaboradores dela ficaram sem equipe atribuída — ninguém foi excluído.');
+  renderAdminTabContent();
+  renderAll();
+}
+
 /* --- FUNCIONÁRIOS --- */
 function renderAdminFuncionarios(c) {
   const ed = state.editing.employee;
@@ -211,6 +323,12 @@ function renderAdminFuncionarios(c) {
       <div class="form-field"><label>Nome completo</label><input id="f-nome" value="${esc(e?e.nome:'')}" placeholder="Ex: Ana Souza"></div>
       <div class="form-field"><label>Número (matrícula)</label><input id="f-numero" value="${esc(e?e.numero:'')}" placeholder="Ex: 0012"></div>
       <div class="form-field"><label>Setor</label><select id="f-setor">${state.setores.map(s=>`<option ${e&&e.setor===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="form-field"><label>Equipe</label>
+        <select id="f-equipe">
+          <option value="">Sem equipe</option>
+          ${state.equipes.map(eq=>`<option value="${eq.id}" ${e&&e.equipe_id===eq.id?'selected':''}>${esc(eq.nome)}${eq.setor?' — '+esc(eq.setor):''}</option>`).join('')}
+        </select>
+      </div>
       <div class="form-field"><label>Cargo</label><input id="f-cargo" value="${esc(e?e.cargo:'')}" placeholder="Ex: Negociadora"></div>
       <div class="form-field"><label>Nível de acesso</label><select id="f-nivel">${CARGOS_ACESSO.map(cg=>`<option ${e&&e.nivel===cg?'selected':''}>${cg}</option>`).join('')}</select></div>
       <div class="form-field"><label>Data de nascimento</label><input id="f-nasc" value="${esc(e?e.nascimento:'')}" placeholder="DD/MM/AAAA"></div>
@@ -241,15 +359,21 @@ function renderAdminFuncionarios(c) {
     <div id="funcionariosListaFiltrada">${listaFuncionariosHTML(state.employees)}</div>
   `;
 }
+function nomeEquipeDoColaborador(emp) {
+  const eqRow = emp && emp.equipe_id ? state.equipes.find(x => x.id === emp.equipe_id) : null;
+  return eqRow ? eqRow.nome : '';
+}
 function listaFuncionariosHTML(lista) {
   if (!lista.length) return `<div style="font-size:12.5px; color:var(--text-3); padding:12px 0;">Nenhum funcionário encontrado.</div>`;
-  return lista.map(emp => `
+  return lista.map(emp => {
+    const equipeNome = nomeEquipeDoColaborador(emp);
+    return `
       <div class="admin-list-item">
         <div style="display:flex; align-items:center; gap:10px;">
           ${avatarHTML(emp.nome, emp.foto_url, 'width:30px; height:30px; font-size:11px;')}
           <div>
             <div style="font-size:13px; font-weight:700;">${esc(emp.nome)} <span style="color:var(--text-3); font-weight:600;">· nº ${esc(emp.numero)}</span></div>
-            <div class="admin-list-meta">${esc(emp.cargo)} — ${esc(emp.setor)} · <i class="fa-solid fa-calendar-days" style="font-size:10px;"></i> ${esc(emp.nascimento)} · <i class="fa-solid fa-phone" style="font-size:10px;"></i> ${esc(emp.telefone)}</div>
+            <div class="admin-list-meta">${esc(emp.cargo)} — ${esc(emp.setor)}${equipeNome ? ' · Equipe: ' + esc(equipeNome) : ''} · <i class="fa-solid fa-calendar-days" style="font-size:10px;"></i> ${esc(emp.nascimento)} · <i class="fa-solid fa-phone" style="font-size:10px;"></i> ${esc(emp.telefone)}</div>
             <span class="access-tag"><i class="fa-solid fa-shield-halved" style="font-size:10px;"></i> Acesso: ${esc(emp.nivel)}</span>
           </div>
         </div>
@@ -258,7 +382,8 @@ function listaFuncionariosHTML(lista) {
           <button class="admin-del-btn" onclick="removeEmployee('${emp.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
         </div>
       </div>
-    `).join('');
+    `;
+  }).join('');
 }
 function filtrarListaFuncionarios(termo) {
   const el = document.getElementById('funcionariosListaFiltrada');
@@ -273,11 +398,12 @@ async function submitEmployee() {
   const data = { nome: val('f-nome'), numero: val('f-numero'), setor: val('f-setor'), cargo: val('f-cargo'), nivel: val('f-nivel'), nascimento: val('f-nasc'), telefone: val('f-tel'), email: val('f-email') };
   if (!data.nome.trim()) return;
   const ed = state.editing.employee;
+  const equipeId = val('f-equipe') || null;
   const fotoTemp = state.editing.employeeFotoTemp;
   const fotoUrl = fotoTemp !== undefined ? fotoTemp : (ed ? (state.employees.find(x=>x.id===ed) || {}).foto_url : null);
   if (!supabaseClient) {
-    if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed, foto_url: fotoUrl }; showToast('Funcionário atualizado!'); }
-    else { state.employees.push({ ...data, id: uid('e'), foto_url: fotoUrl }); showToast('Funcionário cadastrado!'); }
+    if (ed) { const i = state.employees.findIndex(x=>x.id===ed); state.employees[i] = { ...data, id: ed, foto_url: fotoUrl, equipe_id: equipeId }; showToast('Funcionário atualizado!'); }
+    else { state.employees.push({ ...data, id: uid('e'), foto_url: fotoUrl, equipe_id: equipeId }); showToast('Funcionário cadastrado!'); }
     state.editing.employee = null;
     state.editing.employeeFotoTemp = undefined;
     renderAdminTabContent();
@@ -286,6 +412,7 @@ async function submitEmployee() {
   const payload = {
     nome: data.nome, numero: data.numero || null, setor: data.setor, cargo: data.cargo, nivel: data.nivel,
     nascimento: dataBRparaISO(data.nascimento), telefone: data.telefone || null, email: data.email, foto_url: fotoUrl || null,
+    equipe_id: equipeId,
   };
   if (ed) {
     const { error } = await supabaseClient.from('funcionarios').update(payload).eq('id', ed);
