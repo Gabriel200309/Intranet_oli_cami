@@ -63,9 +63,10 @@ const state = {
   classificacoes: JSON.parse(JSON.stringify(CLASSIFICACOES_SEED)),
 
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
-  avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data }
-  atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data }
-  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, status, iniciadoEm, primeiraRespostaEm, finalizadoEm, registradoPorId, data }
+  avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data, atendimentoChatId }
+  atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data, atendimentoChatId }
+  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolvidoEm, finalizadoEm, registradoPorId, data }
+  atendimentoChatEventos: [], // { id, atendimentoId, evento, ocorridoEm, autorId } — linha do tempo (histórico append-only) de cada atendimento
   novaAvaliacaoQualidade: false,
   novoAtendimentoReferencia: false,
   novoAtendimentoChat: false,
@@ -73,6 +74,12 @@ const state = {
     periodoInicio: null, periodoFim: null, // null = sem filtro de período (mostra tudo)
     setor: "", equipeId: "", colaboradorId: "", tipoErro: "", status: "",
   },
+
+  /* ---- Detalhe do atendimento (Registro de Atendimentos) ---- */
+  atendimentoChatAtivoId: null, // abre a tela de detalhe/linha do tempo de um atendimento específico
+  reatribuirAtendimentoChatAberto: false,
+  avaliarAtendimentoChatId: null, // id do atendimento para o qual o formulário de avaliação está aberto (a partir do detalhe)
+  vincularReferenciaAtendimentoChatId: null, // id do atendimento para o qual o formulário de referência/bônus está aberto (a partir do detalhe)
 
   permissoesSetor: JSON.parse(JSON.stringify(PERMISSOES_SETOR_SEED)),
   gestoresSetor: JSON.parse(JSON.stringify(GESTORES_SETOR_SEED)),

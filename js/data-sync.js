@@ -86,6 +86,7 @@ async function carregarAvaliacoesQualidade() {
     personalizacao: a.personalizacao, proatividade: a.proatividade, cumprimentoPromessas: a.cumprimento_promessas,
     qualidadeSolucao: a.qualidade_solucao, segurancaCuidado: a.seguranca_cuidado, reclamacoes: a.reclamacoes,
     observacoes: a.observacoes || '', avaliadorId: a.avaliador_id, data: a.criado_em,
+    atendimentoChatId: a.atendimento_chat_id || null,
   }));
 }
 
@@ -95,6 +96,7 @@ async function carregarAtendimentosReferencia() {
   state.atendimentosReferencia = (data || []).map(r => ({
     id: r.id, colaboradorId: r.colaborador_id, colaborador: r.colaborador_nome || '', setor: r.setor,
     titulo: r.titulo, descricao: r.descricao || '', registradoPorId: r.registrado_por, data: r.criado_em,
+    atendimentoChatId: r.atendimento_chat_id || null,
   }));
 }
 
@@ -104,8 +106,19 @@ async function carregarAtendimentosChat() {
   state.atendimentosChat = (data || []).map(a => ({
     id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
     cliente: a.cliente || '', status: a.status, iniciadoEm: a.iniciado_em,
-    primeiraRespostaEm: a.primeira_resposta_em || null, finalizadoEm: a.finalizado_em || null,
+    alertaEnviadoEm: a.alerta_enviado_em || null, primeiraRespostaEm: a.primeira_resposta_em || null,
+    resolvidoEm: a.resolvido_em || null, finalizadoEm: a.finalizado_em || null,
     registradoPorId: a.registrado_por, data: a.criado_em,
+  }));
+}
+
+/* Linha do tempo (histórico append-only) de cada atendimento — ver
+   js/eficiencia-dashboard.js (renderAtendimentoChatDetalhe). */
+async function carregarAtendimentoChatEventos() {
+  const { data, error } = await supabaseClient.from('atendimento_chat_eventos').select('*').order('ocorrido_em');
+  if (error) { console.error('Erro ao carregar linha do tempo dos atendimentos:', error.message); return; }
+  state.atendimentoChatEventos = (data || []).map(e => ({
+    id: e.id, atendimentoId: e.atendimento_id, evento: e.evento, ocorridoEm: e.ocorrido_em, autorId: e.autor_id,
   }));
 }
 
@@ -324,7 +337,7 @@ async function sincronizarDadosSupabase() {
     carregarAvisos(), carregarCarteiras(), carregarClassificacoes(), carregarSinalizacoes(),
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
-    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarEquipes(),
+    carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarAtendimentoChatEventos(), carregarEquipes(),
     carregarComputadores(), carregarManutencoesComputador(), carregarHistoricoComputador(), carregarReservaAtribuicoes(),
   ]);
   await carregarProgressoCursos();
