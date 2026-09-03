@@ -262,6 +262,57 @@ function assinarNotificacoesRealtime() {
     .subscribe();
 }
 
+async function carregarComputadores() {
+  const { data, error } = await supabaseClient.from('computadores').select('*').order('codigo');
+  if (error) { console.error('Erro ao carregar computadores:', error.message); return; }
+  state.computadores = (data || []).map(c => ({
+    id: c.id, codigo: c.codigo, nome: c.nome, patrimonio: c.patrimonio || '', marca: c.marca || '',
+    modelo: c.modelo || '', numeroSerie: c.numero_serie || '', sistemaOperacional: c.sistema_operacional || '',
+    dataAquisicao: c.data_aquisicao, colaboradorId: c.colaborador_id, colaboradorNome: c.colaborador_nome || '',
+    setor: c.setor || '', status: c.status, ehReserva: !!c.eh_reserva, localizacao: c.localizacao || '',
+    observacoes: c.observacoes || '', criadoPor: c.criado_por, criadoEm: c.criado_em,
+    atualizadoPor: c.atualizado_por, atualizadoEm: c.atualizado_em,
+  }));
+}
+
+async function carregarManutencoesComputador() {
+  const { data, error } = await supabaseClient.from('manutencoes_computador').select('*').order('criado_em', { ascending: false });
+  if (error) { console.error('Erro ao carregar manutenções de computador:', error.message); return; }
+  state.manutencoesComputador = (data || []).map(m => ({
+    id: m.id, computadorId: m.computador_id,
+    problemaData: m.problema_data, problemaRelatado: m.problema_relatado, problemaDescricao: m.problema_descricao || '',
+    identificadoPor: m.identificado_por || '', colaboradorUsavaId: m.colaborador_usava_id, colaboradorUsavaNome: m.colaborador_usava_nome || '',
+    envioData: m.envio_data, tecnicoResponsavel: m.tecnico_responsavel || '', motivoEncaminhamento: m.motivo_encaminhamento || '',
+    status: m.status, diagnostico: m.diagnostico || '', servicoExecutado: m.servico_executado || '',
+    pecasSubstituidas: m.pecas_substituidas || '', componentesInstalados: m.componentes_instalados || '',
+    observacoesTecnicas: m.observacoes_tecnicas || '', responsavelManutencao: m.responsavel_manutencao || '',
+    dataEntrada: m.data_entrada, dataInicioReparo: m.data_inicio_reparo, dataConclusao: m.data_conclusao,
+    dataRetorno: m.data_retorno, previsaoRetorno: m.previsao_retorno,
+    valorManutencao: m.valor_manutencao, valorPecas: m.valor_pecas, valorMaoObra: m.valor_mao_obra,
+    custoTotal: Number(m.custo_total || 0), criadoPor: m.criado_por, criadoEm: m.criado_em, atualizadoPor: m.atualizado_por,
+  }));
+}
+
+async function carregarHistoricoComputador() {
+  const { data, error } = await supabaseClient.from('historico_computador').select('*').order('criado_em');
+  if (error) { console.error('Erro ao carregar histórico de computadores:', error.message); return; }
+  state.historicoComputador = (data || []).map(h => ({
+    id: h.id, computadorId: h.computador_id, manutencaoId: h.manutencao_id, data: h.data,
+    evento: h.evento, autorId: h.autor_id, criadoEm: h.criado_em,
+  }));
+}
+
+async function carregarReservaAtribuicoes() {
+  const { data, error } = await supabaseClient.from('computador_reserva_atribuicoes').select('*').order('entregue_em', { ascending: false });
+  if (error) { console.error('Erro ao carregar atribuições de reserva:', error.message); return; }
+  state.reservaAtribuicoes = (data || []).map(r => ({
+    id: r.id, computadorReservaId: r.computador_reserva_id, computadorPrincipalId: r.computador_principal_id,
+    colaboradorId: r.colaborador_id, colaboradorNome: r.colaborador_nome || '',
+    entregueEm: r.entregue_em, devolvidoEm: r.devolvido_em, devolvidoPor: r.devolvido_por, observacoes: r.observacoes || '',
+    criadoPor: r.criado_por, criadoEm: r.criado_em,
+  }));
+}
+
 /* Chamado uma vez, logo depois do login — carrega tudo que a tela inicial
    precisa. Cursos/progresso/aniversariantes/notificações entram aqui
    também porque aparecem no dashboard principal. */
@@ -274,6 +325,7 @@ async function sincronizarDadosSupabase() {
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
     carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarEquipes(),
+    carregarComputadores(), carregarManutencoesComputador(), carregarHistoricoComputador(), carregarReservaAtribuicoes(),
   ]);
   await carregarProgressoCursos();
   assinarNotificacoesRealtime();

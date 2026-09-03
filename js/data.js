@@ -40,6 +40,7 @@ const NAV_EXTRA = [
   { icon: "bell", label: "Notificações", view: "notificacoes" },
   { icon: "flag", label: "Sinalizações de Colaboradores", view: "sinalizacoes" },
   { icon: "chart", label: "Eficiência, Qualidade e Alertas", view: "eficiencia" },
+  { icon: "computer", label: "Computadores e Equipamentos", view: "computadores" },
   { icon: "bug", label: "Reportar Erro", view: "reportarErro" },
   { icon: "help", label: "Manual do Sistema", view: "manual" },
 ];
@@ -398,6 +399,79 @@ const GESTORES_SETOR_SEED = {
   TI: ["e2"],
   Diretoria: [],
 };
+
+/* ================= CONTROLE DE COMPUTADORES E MANUTENÇÕES =================
+   Cadastro dos computadores/equipamentos de informática do escritório,
+   histórico de manutenções e controle de computadores reserva. Reaproveita
+   EMPLOYEES_SEED/SETORES já existentes — nenhum cadastro de colaborador é
+   duplicado aqui (ver js/computadores.js). */
+const COMPUTADOR_STATUS_OPTS = [
+  { value: "em_uso", label: "Em uso", emoji: "🟢", cor: "var(--success)" },
+  { value: "disponivel", label: "Disponível", emoji: "🟢", cor: "var(--success)" },
+  { value: "reserva", label: "Computador reserva", emoji: "🔵", cor: "#2E6DB4" },
+  { value: "com_problema", label: "Com problema", emoji: "🟡", cor: "#B4881F" },
+  { value: "em_manutencao", label: "Em manutenção", emoji: "🟠", cor: "#C06A2C" },
+  { value: "inativo", label: "Inativo", emoji: "⚫", cor: "var(--text-3)" },
+  { value: "descartado", label: "Descartado", emoji: "⚫", cor: "var(--text-3)" },
+];
+const MANUTENCAO_STATUS_OPTS = [
+  { value: "aguardando_envio", label: "Aguardando envio" },
+  { value: "enviado", label: "Enviado para manutenção" },
+  { value: "em_diagnostico", label: "Em diagnóstico" },
+  { value: "aguardando_peca", label: "Aguardando peça" },
+  { value: "em_reparo", label: "Em reparo" },
+  { value: "aguardando_retirada", label: "Aguardando retirada" },
+  { value: "concluida", label: "Manutenção concluída" },
+  { value: "sem_conserto", label: "Equipamento sem conserto" },
+];
+/* Exemplos apenas para o modo local/demonstração (sem Supabase configurado)
+   — em produção (com Supabase), os dados reais substituem estes seeds
+   assim que sincronizarDadosSupabase() roda (ver js/data-sync.js). */
+const COMPUTADORES_SEED = [
+  {
+    id: "pc1", codigo: "PC-014", nome: "Notebook Gabriel", patrimonio: "PAT-1014", marca: "Dell", modelo: "Latitude 5420",
+    numeroSerie: "SN-DL5420-014", sistemaOperacional: "Windows 11 Pro", dataAquisicao: "2023-02-10",
+    colaboradorId: "e4", colaboradorNome: "Diego Martins", setor: "TI", ehReserva: false,
+    status: "em_manutencao", localizacao: "Sala de TI", observacoes: "",
+    criadoPor: null, criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
+  },
+  {
+    id: "pc2", codigo: "PC-023", nome: "Desktop Financeiro 1", patrimonio: "PAT-1023", marca: "Lenovo", modelo: "ThinkCentre M70",
+    numeroSerie: "SN-LNV-023", sistemaOperacional: "Windows 10 Pro", dataAquisicao: "2022-06-15",
+    colaboradorId: "e6", colaboradorNome: "Marcos Andrade", setor: "Financeiro", ehReserva: false,
+    status: "em_uso", localizacao: "Sala Financeiro", observacoes: "",
+    criadoPor: null, criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
+  },
+  {
+    id: "pc3", codigo: "PC-031", nome: "Notebook Reserva 1", patrimonio: "PAT-1031", marca: "Dell", modelo: "Latitude 3420",
+    numeroSerie: "SN-DL3420-031", sistemaOperacional: "Windows 11 Pro", dataAquisicao: "2024-01-20",
+    colaboradorId: "e4", colaboradorNome: "Diego Martins", setor: "TI", ehReserva: true,
+    status: "em_uso", localizacao: "Com Diego Martins (empréstimo temporário)", observacoes: "Reserva geral do escritório — atualmente emprestado enquanto o PC-014 está em manutenção.",
+    criadoPor: null, criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
+  },
+];
+const MANUTENCOES_COMPUTADOR_SEED = [
+  {
+    id: "man1", computadorId: "pc1",
+    problemaData: "2026-09-03", problemaRelatado: "Computador apresentou travamentos frequentes.",
+    problemaDescricao: "Trava por completo após cerca de 20 minutos de uso, principalmente com múltiplos programas abertos.",
+    identificadoPor: "Diego Martins", colaboradorUsavaId: "e4", colaboradorUsavaNome: "Diego Martins",
+    envioData: "2026-09-03", tecnicoResponsavel: "Assistência TechFix", motivoEncaminhamento: "Diagnóstico de hardware",
+    status: "em_diagnostico", diagnostico: "Suspeita de problema na memória RAM.", servicoExecutado: "", pecasSubstituidas: "",
+    componentesInstalados: "", observacoesTecnicas: "", responsavelManutencao: "TechFix",
+    dataEntrada: "2026-09-03", dataInicioReparo: null, dataConclusao: null, dataRetorno: null, previsaoRetorno: "2026-09-06",
+    valorManutencao: null, valorPecas: null, valorMaoObra: null, custoTotal: 0,
+    criadoPor: null, criadoEm: new Date().toISOString(),
+  },
+];
+const HISTORICO_COMPUTADOR_SEED = [
+  { id: "h1", computadorId: "pc1", manutencaoId: "man1", data: "2026-09-03", evento: "Problema registrado: Computador apresentou travamentos frequentes.", autorId: "e4", criadoEm: new Date().toISOString() },
+  { id: "h2", computadorId: "pc1", manutencaoId: "man1", data: "2026-09-03", evento: "Encaminhado para manutenção — TechFix.", autorId: "e4", criadoEm: new Date().toISOString() },
+  { id: "h3", computadorId: "pc1", manutencaoId: "man1", data: "2026-09-04", evento: "Diagnóstico: suspeita de problema na memória RAM.", autorId: "e4", criadoEm: new Date().toISOString() },
+];
+const RESERVA_ATRIBUICOES_SEED = [
+  { id: "res1", computadorReservaId: "pc3", computadorPrincipalId: "pc1", colaboradorId: "e4", colaboradorNome: "Diego Martins", entregueEm: "2026-09-03", devolvidoEm: null, observacoes: "", criadoPor: null, criadoEm: new Date().toISOString() },
+];
 
 /* ================= REPORTAR ERRO — configuração de e-mail =================
    Este protótipo roda 100% no navegador (sem servidor), então o envio real
