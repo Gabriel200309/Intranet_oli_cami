@@ -81,6 +81,24 @@ const state = {
   bugReports: [],
   ultimoBugReportId: null,
 
+  /* ---- Controle de Computadores e Manutenções ---- */
+  computadores: JSON.parse(JSON.stringify(COMPUTADORES_SEED)),
+  manutencoesComputador: JSON.parse(JSON.stringify(MANUTENCOES_COMPUTADOR_SEED)),
+  historicoComputador: JSON.parse(JSON.stringify(HISTORICO_COMPUTADOR_SEED)),
+  reservaAtribuicoes: JSON.parse(JSON.stringify(RESERVA_ATRIBUICOES_SEED)),
+  computadoresTab: "painel", // 'painel' | 'reservas' | 'relatorios'
+  computadorAtivoId: null,
+  novoComputador: false,
+  editingComputadorId: null,
+  novaManutencaoComputadorId: null, // id do computador com o form "+ Registrar manutenção" aberto
+  editingManutencaoId: null,
+  novaAtribuicaoReserva: false,
+  filtroComputadores: {
+    busca: "", setor: "", status: "", colaboradorId: "",
+    apenasManutencao: false, apenasProblema: false, apenasReserva: false,
+    periodoInicio: null, periodoFim: null,
+  },
+
   loggedIn: false,
   currentUser: null,
   loginError: null,
