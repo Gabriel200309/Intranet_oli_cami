@@ -206,7 +206,7 @@ function atendimentosChatFiltrados() {
 function calcTempoPrimeiraRespostaMin(lista) {
   const comResposta = lista.filter(a => a.primeiraRespostaEm && a.iniciadoEm);
   if (!comResposta.length) return null;
-  const totalMin = comResposta.reduce((acc, a) => acc + (new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000, 0);
+  const totalMin = comResposta.reduce((acc, a) => acc + Math.max(0, (new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000), 0);
   return Math.round(totalMin / comResposta.length);
 }
 function formatarDuracaoMin(min) {
@@ -516,25 +516,51 @@ async function submitAtendimentoChat() {
    evento realmente aconteceu (pré-preenchido com "agora", mas editável) —
    nunca gravam o horário do clique automaticamente, para não registrar um
    horário errado quando o lançamento é feito depois do fato. */
-function toggleEnviarAlertaAtendimentoChat() { state.enviarAlertaAtendimentoChatAberto = !state.enviarAlertaAtendimentoChatAberto; renderEficienciaView(); }
-function toggleRegistrarRespostaAtendimentoChat() { state.registrarRespostaAtendimentoChatAberto = !state.registrarRespostaAtendimentoChatAberto; renderEficienciaView(); }
+/* Todos os sub-formulários do detalhe do atendimento (alerta/resposta/
+   reatribuição/link) são mutuamente exclusivos — abrir um sempre fecha os
+   demais, para nunca ter dois formulários abertos ao mesmo tempo sobre o
+   mesmo atendimento. */
+function fecharSubFormsAtendimentoChat() {
+  state.enviarAlertaAtendimentoChatAberto = false;
+  state.registrarRespostaAtendimentoChatAberto = false;
+  state.reatribuirAtendimentoChatAberto = false;
+  state.editarLinkChatguruAberto = false;
+}
+function toggleEnviarAlertaAtendimentoChat() {
+  const abrir = !state.enviarAlertaAtendimentoChatAberto;
+  fecharSubFormsAtendimentoChat();
+  state.enviarAlertaAtendimentoChatAberto = abrir;
+  renderEficienciaView();
+}
+function toggleRegistrarRespostaAtendimentoChat() {
+  const abrir = !state.registrarRespostaAtendimentoChatAberto;
+  fecharSubFormsAtendimentoChat();
+  state.registrarRespostaAtendimentoChatAberto = abrir;
+  renderEficienciaView();
+}
 /* Atalhos da listagem: abrem o atendimento já com o formulário de
    horário aberto, em vez de gravar "agora" direto no clique. */
-function abrirAtendimentoParaAlerta(id) { state.atendimentoChatAtivoId = id; state.enviarAlertaAtendimentoChatAberto = true; renderEficienciaView(); }
-function abrirAtendimentoParaResposta(id) { state.atendimentoChatAtivoId = id; state.registrarRespostaAtendimentoChatAberto = true; renderEficienciaView(); }
+function abrirAtendimentoParaAlerta(id) { state.atendimentoChatAtivoId = id; fecharSubFormsAtendimentoChat(); state.enviarAlertaAtendimentoChatAberto = true; renderEficienciaView(); }
+function abrirAtendimentoParaResposta(id) { state.atendimentoChatAtivoId = id; fecharSubFormsAtendimentoChat(); state.registrarRespostaAtendimentoChatAberto = true; renderEficienciaView(); }
 async function confirmarAlertaAtendimentoChat(id) {
   const quando = val('alerta-quando');
   if (!quando) { showToast('Informe a data e hora em que o alerta foi enviado.'); return; }
+  const quandoIso = new Date(quando).toISOString();
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.iniciadoEm && new Date(quandoIso) < new Date(a.iniciadoEm)) { showToast('O horário do alerta não pode ser anterior ao início do atendimento.'); return; }
   // fecha o formulário ANTES de chamar a ação (que já re-renderiza a tela
   // sozinha) — senão o formulário aparece aberto por mais um clique.
   state.enviarAlertaAtendimentoChatAberto = false;
-  await enviarAlertaAtendimentoChat(id, new Date(quando).toISOString());
+  await enviarAlertaAtendimentoChat(id, quandoIso);
 }
 async function confirmarRespostaAtendimentoChat(id) {
   const quando = val('resposta-quando');
   if (!quando) { showToast('Informe a data e hora em que o colaborador respondeu.'); return; }
+  const quandoIso = new Date(quando).toISOString();
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.iniciadoEm && new Date(quandoIso) < new Date(a.iniciadoEm)) { showToast('O horário da resposta não pode ser anterior ao início do atendimento.'); return; }
   state.registrarRespostaAtendimentoChatAberto = false;
-  await registrarPrimeiraRespostaAtendimento(id, new Date(quando).toISOString());
+  await registrarPrimeiraRespostaAtendimento(id, quandoIso);
 }
 async function enviarAlertaAtendimentoChat(id, quandoIso) {
   const quando = quandoIso || new Date().toISOString();
@@ -618,7 +644,12 @@ async function removerAtendimentoChat(id) {
 /* Histórico de troca de responsável (regra 4 do pedido): quem assumiu antes
    fica registrado na linha do tempo — nunca sobrescrito, só o
    colaborador_id/nome "atual" do atendimento muda. */
-function toggleReatribuirAtendimentoChat() { state.reatribuirAtendimentoChatAberto = !state.reatribuirAtendimentoChatAberto; renderEficienciaView(); }
+function toggleReatribuirAtendimentoChat() {
+  const abrir = !state.reatribuirAtendimentoChatAberto;
+  fecharSubFormsAtendimentoChat();
+  state.reatribuirAtendimentoChatAberto = abrir;
+  renderEficienciaView();
+}
 async function submitReatribuicaoAtendimentoChat(id) {
   const a = state.atendimentosChat.find(x => x.id === id);
   const novoColaboradorId = val('reat-colaborador');
@@ -646,7 +677,12 @@ async function submitReatribuicaoAtendimentoChat(id) {
    adicionado já no cadastro ou preenchido/editado depois, a qualquer
    momento (a conversa muitas vezes só existe/URL só fica disponível depois
    que o atendimento já foi registrado). */
-function toggleEditarLinkChatguru() { state.editarLinkChatguruAberto = !state.editarLinkChatguruAberto; renderEficienciaView(); }
+function toggleEditarLinkChatguru() {
+  const abrir = !state.editarLinkChatguruAberto;
+  fecharSubFormsAtendimentoChat();
+  state.editarLinkChatguruAberto = abrir;
+  renderEficienciaView();
+}
 async function salvarLinkChatguru(id) {
   const link = val('link-chatguru-edit').trim();
   if (!supabaseClient) {
@@ -674,10 +710,7 @@ function statusAtendimentoChatCor(status) {
 /* ---------------- Detalhe do atendimento: linha do tempo completa ---------------- */
 function abrirAtendimentoChat(id) {
   state.atendimentoChatAtivoId = id;
-  state.reatribuirAtendimentoChatAberto = false;
-  state.enviarAlertaAtendimentoChatAberto = false;
-  state.registrarRespostaAtendimentoChatAberto = false;
-  state.editarLinkChatguruAberto = false;
+  fecharSubFormsAtendimentoChat();
   renderEficienciaView();
 }
 function fecharAtendimentoChat() {
@@ -687,10 +720,7 @@ function fecharAtendimentoChat() {
   // ele reapareça "solto" (sem o contexto do atendimento) no painel geral.
   if (state.avaliarAtendimentoChatId) { state.novaAvaliacaoQualidade = false; state.avaliarAtendimentoChatId = null; }
   if (state.vincularReferenciaAtendimentoChatId) { state.novoAtendimentoReferencia = false; state.vincularReferenciaAtendimentoChatId = null; }
-  state.reatribuirAtendimentoChatAberto = false;
-  state.enviarAlertaAtendimentoChatAberto = false;
-  state.registrarRespostaAtendimentoChatAberto = false;
-  state.editarLinkChatguruAberto = false;
+  fecharSubFormsAtendimentoChat();
   renderEficienciaView();
 }
 
@@ -1004,7 +1034,8 @@ function renderEficienciaView() {
       ${atendimentosChat.length ? atendimentosChat.slice(0, 20).map(a => {
         const podeGerenciar = podeGerenciarAtendimentoChat(a);
         const temReferencia = referenciasDoAtendimento(a.id).length > 0;
-        const tempoResposta = a.primeiraRespostaEm ? formatarDuracaoMin(Math.round((new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000)) : null;
+        const tempoRespostaMinRow = calcMinutosEntre(a.iniciadoEm, a.primeiraRespostaEm);
+        const tempoResposta = tempoRespostaMinRow === null ? null : formatarDuracaoMin(tempoRespostaMinRow);
         return `
         <div class="aviso-row" onclick="abrirAtendimentoChat('${a.id}')">
           <div class="priority-bar" style="background:${statusAtendimentoChatCor(a.status)};"></div>
