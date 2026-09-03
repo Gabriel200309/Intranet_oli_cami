@@ -65,7 +65,7 @@ const state = {
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
   avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data, atendimentoChatId }
   atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data, atendimentoChatId }
-  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolvidoEm, finalizadoEm, registradoPorId, data }
+  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, linkChatguru, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolucao, resolvidoEm, finalizadoEm, registradoPorId, data }
   atendimentoChatEventos: [], // { id, atendimentoId, evento, ocorridoEm, autorId } — linha do tempo (histórico append-only) de cada atendimento
   novaAvaliacaoQualidade: false,
   novoAtendimentoReferencia: false,
@@ -78,6 +78,9 @@ const state = {
   /* ---- Detalhe do atendimento (Registro de Atendimentos) ---- */
   atendimentoChatAtivoId: null, // abre a tela de detalhe/linha do tempo de um atendimento específico
   reatribuirAtendimentoChatAberto: false,
+  enviarAlertaAtendimentoChatAberto: false, // formulário de horário do alerta (nunca grava "agora" sem confirmar)
+  registrarRespostaAtendimentoChatAberto: false, // formulário de horário da resposta (idem)
+  editarLinkChatguruAberto: false,
   avaliarAtendimentoChatId: null, // id do atendimento para o qual o formulário de avaliação está aberto (a partir do detalhe)
   vincularReferenciaAtendimentoChatId: null, // id do atendimento para o qual o formulário de referência/bônus está aberto (a partir do detalhe)
 
