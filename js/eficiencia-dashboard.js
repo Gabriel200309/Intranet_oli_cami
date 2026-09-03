@@ -477,16 +477,21 @@ async function removerAtendimentoReferencia(id) {
    a anterior — "respondido" e "resolvido" são sempre eventos distintos
    (ver migração 0020). */
 function toggleNovoAtendimentoChat() { state.novoAtendimentoChat = !state.novoAtendimentoChat; renderEficienciaView(); }
+/* Valor padrão para inputs <input type="datetime-local"> — "agora" no fuso
+   local do navegador (o value desses inputs é sempre "naive", sem fuso).
+   Quem registra pode editar livremente antes de confirmar. */
+function agoraParaDatetimeLocal() { return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
 async function submitAtendimentoChat() {
   if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos.'); return; }
   const colaboradorId = val('at-colaborador'), cliente = val('at-cliente'), inicioBruto = val('at-inicio');
+  const linkChatguru = val('at-link-chatguru').trim();
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
   const iniciadoEm = (inicioBruto ? new Date(inicioBruto) : new Date()).toISOString();
   if (!supabaseClient) {
     const novo = {
       id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
-      cliente, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
+      cliente, linkChatguru, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
       resolucao: 'pendente', resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
     };
     state.atendimentosChat.unshift(novo);
@@ -498,7 +503,7 @@ async function submitAtendimentoChat() {
   }
   const payload = {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
-    cliente: cliente || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
+    cliente: cliente || null, link_chatguru: linkChatguru || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
   };
   const { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
@@ -507,36 +512,60 @@ async function submitAtendimentoChat() {
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
-async function enviarAlertaAtendimentoChat(id) {
-  const agora = new Date().toISOString();
+/* Enviar alerta e registrar resposta SEMPRE perguntam o horário em que o
+   evento realmente aconteceu (pré-preenchido com "agora", mas editável) —
+   nunca gravam o horário do clique automaticamente, para não registrar um
+   horário errado quando o lançamento é feito depois do fato. */
+function toggleEnviarAlertaAtendimentoChat() { state.enviarAlertaAtendimentoChatAberto = !state.enviarAlertaAtendimentoChatAberto; renderEficienciaView(); }
+function toggleRegistrarRespostaAtendimentoChat() { state.registrarRespostaAtendimentoChatAberto = !state.registrarRespostaAtendimentoChatAberto; renderEficienciaView(); }
+/* Atalhos da listagem: abrem o atendimento já com o formulário de
+   horário aberto, em vez de gravar "agora" direto no clique. */
+function abrirAtendimentoParaAlerta(id) { state.atendimentoChatAtivoId = id; state.enviarAlertaAtendimentoChatAberto = true; renderEficienciaView(); }
+function abrirAtendimentoParaResposta(id) { state.atendimentoChatAtivoId = id; state.registrarRespostaAtendimentoChatAberto = true; renderEficienciaView(); }
+async function confirmarAlertaAtendimentoChat(id) {
+  const quando = val('alerta-quando');
+  if (!quando) { showToast('Informe a data e hora em que o alerta foi enviado.'); return; }
+  // fecha o formulário ANTES de chamar a ação (que já re-renderiza a tela
+  // sozinha) — senão o formulário aparece aberto por mais um clique.
+  state.enviarAlertaAtendimentoChatAberto = false;
+  await enviarAlertaAtendimentoChat(id, new Date(quando).toISOString());
+}
+async function confirmarRespostaAtendimentoChat(id) {
+  const quando = val('resposta-quando');
+  if (!quando) { showToast('Informe a data e hora em que o colaborador respondeu.'); return; }
+  state.registrarRespostaAtendimentoChatAberto = false;
+  await registrarPrimeiraRespostaAtendimento(id, new Date(quando).toISOString());
+}
+async function enviarAlertaAtendimentoChat(id, quandoIso) {
+  const quando = quandoIso || new Date().toISOString();
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
     if (a && !a.alertaEnviadoEm) {
-      a.alertaEnviadoEm = agora;
+      a.alertaEnviadoEm = quando;
       if (a.status === 'aguardando') a.status = 'alerta_enviado';
-      registrarEventoAtendimentoLocal(id, 'Alerta enviado ao grupo', agora);
+      registrarEventoAtendimentoLocal(id, 'Alerta enviado ao grupo', quando);
     }
     renderEficienciaView();
     return;
   }
-  const { error } = await supabaseClient.from('atendimentos_chat').update({ alerta_enviado_em: agora }).eq('id', id);
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ alerta_enviado_em: quando }).eq('id', id);
   if (error) { showToast('Não foi possível registrar o alerta: ' + error.message); return; }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
-async function registrarPrimeiraRespostaAtendimento(id) {
-  const agora = new Date().toISOString();
+async function registrarPrimeiraRespostaAtendimento(id, quandoIso) {
+  const quando = quandoIso || new Date().toISOString();
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
     if (a && !a.primeiraRespostaEm) {
-      a.primeiraRespostaEm = agora;
+      a.primeiraRespostaEm = quando;
       if (['aguardando', 'alerta_enviado', 'em_atendimento'].includes(a.status)) a.status = 'respondido';
-      registrarEventoAtendimentoLocal(id, `Cliente respondido${a.colaborador ? ' por ' + a.colaborador : ''}`, agora);
+      registrarEventoAtendimentoLocal(id, `Cliente respondido${a.colaborador ? ' por ' + a.colaborador : ''}`, quando);
     }
     renderEficienciaView();
     return;
   }
-  const { error } = await supabaseClient.from('atendimentos_chat').update({ primeira_resposta_em: agora }).eq('id', id);
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ primeira_resposta_em: quando }).eq('id', id);
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
@@ -613,6 +642,28 @@ async function submitReatribuicaoAtendimentoChat(id) {
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
+/* Link da conversa com o cliente no ChatGuru — opcional, pode ser
+   adicionado já no cadastro ou preenchido/editado depois, a qualquer
+   momento (a conversa muitas vezes só existe/URL só fica disponível depois
+   que o atendimento já foi registrado). */
+function toggleEditarLinkChatguru() { state.editarLinkChatguruAberto = !state.editarLinkChatguruAberto; renderEficienciaView(); }
+async function salvarLinkChatguru(id) {
+  const link = val('link-chatguru-edit').trim();
+  if (!supabaseClient) {
+    const a = state.atendimentosChat.find(x => x.id === id);
+    if (a) a.linkChatguru = link;
+    state.editarLinkChatguruAberto = false;
+    showToast('Link do ChatGuru salvo!');
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ link_chatguru: link || null }).eq('id', id);
+  if (error) { showToast('Não foi possível salvar o link: ' + error.message); return; }
+  state.editarLinkChatguruAberto = false;
+  showToast('Link do ChatGuru salvo!');
+  await carregarAtendimentosChat();
+  renderEficienciaView();
+}
 function statusAtendimentoChatLabel(status) {
   return (STATUS_ATENDIMENTO_CHAT.find(s => s.value === status) || STATUS_ATENDIMENTO_CHAT[0]).label;
 }
@@ -621,15 +672,25 @@ function statusAtendimentoChatCor(status) {
 }
 
 /* ---------------- Detalhe do atendimento: linha do tempo completa ---------------- */
-function abrirAtendimentoChat(id) { state.atendimentoChatAtivoId = id; state.reatribuirAtendimentoChatAberto = false; renderEficienciaView(); }
+function abrirAtendimentoChat(id) {
+  state.atendimentoChatAtivoId = id;
+  state.reatribuirAtendimentoChatAberto = false;
+  state.enviarAlertaAtendimentoChatAberto = false;
+  state.registrarRespostaAtendimentoChatAberto = false;
+  state.editarLinkChatguruAberto = false;
+  renderEficienciaView();
+}
 function fecharAtendimentoChat() {
   state.atendimentoChatAtivoId = null;
   // fecha também qualquer sub-formulário pendente aberto a partir do
-  // detalhe (avaliação/referência/reatribuição) — evita que ele reapareça
-  // "solto" (sem o contexto do atendimento) no painel geral.
+  // detalhe (avaliação/referência/reatribuição/horários/link) — evita que
+  // ele reapareça "solto" (sem o contexto do atendimento) no painel geral.
   if (state.avaliarAtendimentoChatId) { state.novaAvaliacaoQualidade = false; state.avaliarAtendimentoChatId = null; }
   if (state.vincularReferenciaAtendimentoChatId) { state.novoAtendimentoReferencia = false; state.vincularReferenciaAtendimentoChatId = null; }
   state.reatribuirAtendimentoChatAberto = false;
+  state.enviarAlertaAtendimentoChatAberto = false;
+  state.registrarRespostaAtendimentoChatAberto = false;
+  state.editarLinkChatguruAberto = false;
   renderEficienciaView();
 }
 
@@ -721,13 +782,39 @@ function renderAtendimentoChatDetalhe() {
         <div><strong>Setor:</strong> ${esc(a.setor || '—')}</div>
         <div><strong>Data:</strong> ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))}</div>
       </div>
+      <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px;">
+        <strong>Conversa no ChatGuru:</strong>
+        ${a.linkChatguru ? `<a href="${esc(a.linkChatguru)}" target="_blank" rel="noopener noreferrer" class="open-btn" style="margin-top:0; display:inline-flex;"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir conversa</a>` : `<span style="color:var(--text-3);">Nenhum link cadastrado</span>`}
+        ${podeGerenciar ? `<button class="admin-edit-btn" title="${a.linkChatguru ? 'Editar link' : 'Adicionar link'}" style="width:26px; height:26px;" onclick="toggleEditarLinkChatguru()"><i class="fa-solid fa-pen" style="font-size:11px;"></i></button>` : ''}
+      </div>
+      ${state.editarLinkChatguruAberto ? `
+        <div style="margin-top:10px; display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+          <div class="form-field" style="min-width:280px; flex:1;"><label>Link do ChatGuru</label><input id="link-chatguru-edit" placeholder="https://app.chatguru.app/..." value="${esc(a.linkChatguru || '')}"></div>
+          <button class="admin-add-btn" onclick="salvarLinkChatguru('${a.id}')"><i class="fa-solid fa-check"></i> Salvar</button>
+          <button class="admin-cancel-btn" onclick="toggleEditarLinkChatguru()">Cancelar</button>
+        </div>
+      ` : ''}
       ${podeGerenciar ? `
         <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
-          ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
-          ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
+          ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleEnviarAlertaAtendimentoChat()"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
+          ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleRegistrarRespostaAtendimentoChat()"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
           ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
           <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
         </div>
+        ${state.enviarAlertaAtendimentoChatAberto ? `
+          <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="form-field"><label>Data e hora em que o alerta foi enviado</label><input id="alerta-quando" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
+            <button class="admin-add-btn" onclick="confirmarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-check"></i> Confirmar</button>
+            <button class="admin-cancel-btn" onclick="toggleEnviarAlertaAtendimentoChat()">Cancelar</button>
+          </div>
+        ` : ''}
+        ${state.registrarRespostaAtendimentoChatAberto ? `
+          <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="form-field"><label>Data e hora em que o colaborador respondeu</label><input id="resposta-quando" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
+            <button class="admin-add-btn" onclick="confirmarRespostaAtendimentoChat('${a.id}')"><i class="fa-solid fa-check"></i> Confirmar</button>
+            <button class="admin-cancel-btn" onclick="toggleRegistrarRespostaAtendimentoChat()">Cancelar</button>
+          </div>
+        ` : ''}
         ${state.reatribuirAtendimentoChatAberto ? `
           <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
             <div class="form-field" style="min-width:220px;"><label>Novo colaborador responsável</label>
@@ -904,7 +991,8 @@ function renderEficienciaView() {
             <select id="at-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
           </div>
           <div class="form-field"><label>Cliente <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-cliente" placeholder="Nome do cliente atendido"></div>
-          <div class="form-field" style="grid-column:span 2;"><label>Início do atendimento</label><input id="at-inicio" type="datetime-local" value="${new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,16)}"></div>
+          <div class="form-field"><label>Início do atendimento</label><input id="at-inicio" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
+          <div class="form-field" style="grid-column:span 2;"><label>Link do ChatGuru <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-link-chatguru" placeholder="https://app.chatguru.app/..."></div>
         </div>
         <div style="display:flex; gap:8px;">
           <button class="admin-add-btn" onclick="submitAtendimentoChat()"><i class="fa-solid fa-plus"></i> Registrar</button>
@@ -931,8 +1019,8 @@ function renderEficienciaView() {
           </div>
           ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
-            ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
-            ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta agora" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
+            ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="abrirAtendimentoParaAlerta('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
+            ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta" onclick="abrirAtendimentoParaResposta('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
             ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
             <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
           </div>` : ''}
