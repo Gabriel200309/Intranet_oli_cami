@@ -29,6 +29,82 @@ const CRITERIOS_QUALIDADE = [
   { key: 'reclamacoes', campo: 'reclamacoes', label: 'Ocorrência de reclamações (10 = nenhuma)' },
 ];
 
+/* ================= REGISTRO DE ATENDIMENTOS — ciclo de vida vinculado =================
+   O atendimento (atendimentos_chat) é o registro principal: alerta enviado,
+   resposta, resolução, encerramento, avaliação e reconhecimento/bônus são
+   sempre vinculados a ele (nunca informações soltas) — ver migração 0020.
+   "Respondido" (alguém respondeu) e "Resolvido" (o problema foi realmente
+   solucionado) são informações DIFERENTES: "status" é só o andamento do
+   atendimento (fluxo); a resolução é uma pergunta própria e independente —
+   "A demanda foi resolvida?" (Sim/Não/Pendente) — na coluna "resolucao",
+   nunca inferida de "respondido". Os estados "aguardando"/"finalizado" já
+   existiam (migração 0017) e continuam sendo gravados exatamente como
+   antes — só ganharam um rótulo mais claro na interface
+   ("Pendente"/"Encerrado"), para não invalidar nenhum atendimento já
+   registrado.
+
+   REGRA PRINCIPAL DE TEMPO: "tempo de resposta" é sempre
+   primeiraRespostaEm - iniciadoEm (mensagem do cliente até a resposta do
+   colaborador), independente do horário do alerta — o alerta é só
+   registrado à parte, para acompanhamento do processo (calcIndicadoresAtendimento). */
+const STATUS_ATENDIMENTO_CHAT = [
+  { value: 'aguardando', label: 'Pendente', cor: 'var(--danger)' },
+  { value: 'alerta_enviado', label: 'Alerta enviado', cor: '#B4881F' },
+  { value: 'em_atendimento', label: 'Em atendimento', cor: '#2E6DB4' },
+  { value: 'respondido', label: 'Respondido', cor: 'var(--success)' },
+  { value: 'finalizado', label: 'Encerrado', cor: 'var(--text-3)' },
+];
+/* "A demanda foi resolvida?" — resposta explícita, independente do status
+   do fluxo acima. Pode ser alterada/revertida a qualquer momento. */
+const RESOLUCAO_ATENDIMENTO_INFO = {
+  pendente: { label: 'Pendente', emoji: '⚪', cor: 'var(--text-3)' },
+  resolvida: { label: 'Sim — Resolvida', emoji: '🟢', cor: 'var(--success)' },
+  nao_resolvida: { label: 'Não — Não resolvida', emoji: '🔴', cor: 'var(--danger)' },
+};
+/* Mesma regra de gestão já usada nas ações de atendimento (antes repetida
+   inline): administrador, quem registrou, gestor do setor, ou o próprio
+   colaborador responsável pelo atendimento (agora também pode agir sobre o
+   próprio atendimento — ver policy atendimentos_chat_update em 0020). */
+function podeGerenciarAtendimentoChat(a) {
+  const emp = getEffectiveEmployee();
+  if (!emp) return false;
+  return isAdmin() || a.registradoPorId === emp.id || a.colaboradorId === emp.id || isGestorDoSetor(a.setor);
+}
+function eventosDoAtendimento(atendimentoId) {
+  return state.atendimentoChatEventos.filter(e => e.atendimentoId === atendimentoId)
+    .slice().sort((x, y) => new Date(x.ocorridoEm) - new Date(y.ocorridoEm));
+}
+/* Só usado no modo local/demonstração (sem Supabase): no banco real, a
+   linha do tempo é gerada automaticamente pelos triggers da migração 0020 —
+   aqui replicamos o mesmo texto/comportamento para a experiência offline
+   continuar idêntica. */
+function registrarEventoAtendimentoLocal(atendimentoId, evento, ocorridoEmIso) {
+  const emp = getEffectiveEmployee();
+  state.atendimentoChatEventos.push({
+    id: uid('atev'), atendimentoId, evento, ocorridoEm: ocorridoEmIso || new Date().toISOString(),
+    autorId: emp ? emp.id : null,
+  });
+}
+function avaliacoesDoAtendimento(atendimentoId) { return state.avaliacoesQualidade.filter(a => a.atendimentoChatId === atendimentoId); }
+function referenciasDoAtendimento(atendimentoId) { return state.atendimentosReferencia.filter(r => r.atendimentoChatId === atendimentoId); }
+function mediaAvaliacaoQualidade(a) {
+  return Math.round((CRITERIOS_QUALIDADE.reduce((acc, c) => acc + (Number(a[c.key]) || 0), 0) / CRITERIOS_QUALIDADE.length) * 10) / 10;
+}
+/* Indicadores de tempo do atendimento individual (seção "Indicadores" do
+   detalhe) — null quando faltar algum dos dois horários envolvidos
+   ("Sem dados suficientes" na tela, nunca um cálculo incorreto/negativo). */
+function calcMinutosEntre(isoInicio, isoFim) {
+  if (!isoInicio || !isoFim) return null;
+  return Math.max(0, Math.round((new Date(isoFim) - new Date(isoInicio)) / 60000));
+}
+function calcIndicadoresAtendimento(a) {
+  return {
+    ateAlertaMin: calcMinutosEntre(a.iniciadoEm, a.alertaEnviadoEm), // só para acompanhamento do processo — nunca usado no tempo de resposta
+    tempoRespostaMin: calcMinutosEntre(a.iniciadoEm, a.primeiraRespostaEm), // mensagem do cliente -> resposta do colaborador, sempre, independente do alerta
+    resolucaoMin: calcMinutosEntre(a.iniciadoEm, a.resolvidoEm), // mensagem do cliente -> resolução (só existe data quando resolucao = "resolvida")
+  };
+}
+
 function souGestorDeAlgumSetor() {
   const emp = getEffectiveEmployee();
   if (!emp) return false;
@@ -274,12 +350,27 @@ function filtrosEficienciaBar() {
 }
 
 /* ---------------- Qualidade e Encantamento: registro de avaliação ---------------- */
-function toggleNovaAvaliacaoQualidade() { state.novaAvaliacaoQualidade = !state.novaAvaliacaoQualidade; renderEficienciaView(); }
+/* atendimentoId opcional: quando informado (aberto a partir do detalhe de um
+   atendimento), a avaliação nasce já vinculada a ele e o colaborador vem
+   travado no responsável daquele atendimento — chamado sem argumento (do
+   painel geral) continua funcionando exatamente como antes. */
+function toggleNovaAvaliacaoQualidade(atendimentoId) {
+  if (atendimentoId) {
+    const jaAbertaParaEste = state.novaAvaliacaoQualidade && state.avaliarAtendimentoChatId === atendimentoId;
+    state.novaAvaliacaoQualidade = !jaAbertaParaEste;
+    state.avaliarAtendimentoChatId = jaAbertaParaEste ? null : atendimentoId;
+  } else {
+    state.novaAvaliacaoQualidade = !state.novaAvaliacaoQualidade;
+    state.avaliarAtendimentoChatId = null;
+  }
+  renderEficienciaView();
+}
 async function submitAvaliacaoQualidade() {
   if (!isAdmin()) { showToast('Só administradores podem registrar avaliações de qualidade.'); return; }
   const colaboradorId = val('aq-colaborador');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!colaboradorEmp) { showToast('Selecione o colaborador avaliado.'); return; }
+  const atendimentoChatId = state.avaliarAtendimentoChatId || null;
   const periodo = val('aq-periodo') || new Date().toISOString().slice(0, 10);
   const notas = {};
   for (const c of CRITERIOS_QUALIDADE) {
@@ -296,20 +387,23 @@ async function submitAvaliacaoQualidade() {
     state.avaliacoesQualidade.unshift({
       id: uid('aq'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
       periodo, ...notas, observacoes, avaliadorId: state.currentUser.id, data: new Date().toISOString(),
+      atendimentoChatId,
     });
     state.novaAvaliacaoQualidade = false;
+    state.avaliarAtendimentoChatId = null;
     showToast('Avaliação de qualidade registrada!');
     renderEficienciaView();
     return;
   }
   const payload = {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
-    periodo, observacoes, avaliador_id: state.currentUser.id,
+    periodo, observacoes, avaliador_id: state.currentUser.id, atendimento_chat_id: atendimentoChatId,
   };
   CRITERIOS_QUALIDADE.forEach(c => { payload[c.campo] = notas[c.key]; });
   const { error } = await supabaseClient.from('avaliacoes_qualidade').insert(payload);
   if (error) { showToast('Não foi possível registrar a avaliação: ' + error.message); return; }
   state.novaAvaliacaoQualidade = false;
+  state.avaliarAtendimentoChatId = null;
   showToast('Avaliação de qualidade registrada!');
   await carregarAvaliacoesQualidade();
   renderEficienciaView();
@@ -324,29 +418,45 @@ async function removerAvaliacaoQualidade(id) {
 }
 
 /* ---------------- Reconhecimento: atendimentos de referência ---------------- */
-function toggleNovoAtendimentoReferencia() { state.novoAtendimentoReferencia = !state.novoAtendimentoReferencia; renderEficienciaView(); }
+/* atendimentoId opcional (mesmo esquema de toggleNovaAvaliacaoQualidade):
+   aberto a partir do detalhe de um atendimento, já nasce vinculado a ele. */
+function toggleNovoAtendimentoReferencia(atendimentoId) {
+  if (atendimentoId) {
+    const jaAbertoParaEste = state.novoAtendimentoReferencia && state.vincularReferenciaAtendimentoChatId === atendimentoId;
+    state.novoAtendimentoReferencia = !jaAbertoParaEste;
+    state.vincularReferenciaAtendimentoChatId = jaAbertoParaEste ? null : atendimentoId;
+  } else {
+    state.novoAtendimentoReferencia = !state.novoAtendimentoReferencia;
+    state.vincularReferenciaAtendimentoChatId = null;
+  }
+  renderEficienciaView();
+}
 async function submitAtendimentoReferencia() {
   if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos de referência.'); return; }
   const colaboradorId = val('ar-colaborador'), titulo = val('ar-titulo'), descricao = val('ar-descricao');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!titulo.trim() || !colaboradorEmp) { showToast('Informe ao menos o colaborador e um título para o atendimento.'); return; }
+  const atendimentoChatId = state.vincularReferenciaAtendimentoChatId || (document.getElementById('ar-atendimento') ? (val('ar-atendimento') || null) : null);
   if (!supabaseClient) {
     state.atendimentosReferencia.unshift({
       id: uid('ar'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
       titulo, descricao, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
+      atendimentoChatId,
     });
     state.novoAtendimentoReferencia = false;
+    state.vincularReferenciaAtendimentoChatId = null;
     showToast('Atendimento de referência registrado!');
     renderEficienciaView();
     return;
   }
   const payload = {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
-    titulo, descricao, registrado_por: state.currentUser.id,
+    titulo, descricao, registrado_por: state.currentUser.id, atendimento_chat_id: atendimentoChatId,
   };
   const { error } = await supabaseClient.from('atendimentos_referencia').insert(payload);
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novoAtendimentoReferencia = false;
+  state.vincularReferenciaAtendimentoChatId = null;
   showToast('Atendimento de referência registrado!');
   await carregarAtendimentosReferencia();
   renderEficienciaView();
@@ -360,7 +470,12 @@ async function removerAtendimentoReferencia(id) {
   renderEficienciaView();
 }
 
-/* ---------------- Atendimentos (chat): início + primeira resposta ---------------- */
+/* ---------------- Atendimentos (chat): ciclo completo do atendimento ---------------- */
+/* Cliente envia mensagem -> Atendimento registrado -> Alerta enviado ao
+   grupo -> Colaborador responde -> Atendimento resolvido -> (Encerrado /
+   avaliado). Cada passo grava sua própria data/hora, nunca sobrescrevendo
+   a anterior — "respondido" e "resolvido" são sempre eventos distintos
+   (ver migração 0020). */
 function toggleNovoAtendimentoChat() { state.novoAtendimentoChat = !state.novoAtendimentoChat; renderEficienciaView(); }
 async function submitAtendimentoChat() {
   if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos.'); return; }
@@ -369,11 +484,13 @@ async function submitAtendimentoChat() {
   if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
   const iniciadoEm = (inicioBruto ? new Date(inicioBruto) : new Date()).toISOString();
   if (!supabaseClient) {
-    state.atendimentosChat.unshift({
+    const novo = {
       id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
-      cliente, status: 'aguardando', iniciadoEm, primeiraRespostaEm: null, finalizadoEm: null,
-      registradoPorId: state.currentUser.id, data: new Date().toISOString(),
-    });
+      cliente, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
+      resolucao: 'pendente', resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
+    };
+    state.atendimentosChat.unshift(novo);
+    registrarEventoAtendimentoLocal(novo.id, `Atendimento registrado — cliente enviou mensagem/solicitação${cliente ? ' (' + cliente + ')' : ''}`, iniciadoEm);
     state.novoAtendimentoChat = false;
     showToast('Atendimento registrado!');
     renderEficienciaView();
@@ -387,33 +504,77 @@ async function submitAtendimentoChat() {
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novoAtendimentoChat = false;
   showToast('Atendimento registrado!');
-  await carregarAtendimentosChat();
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
+  renderEficienciaView();
+}
+async function enviarAlertaAtendimentoChat(id) {
+  const agora = new Date().toISOString();
+  if (!supabaseClient) {
+    const a = state.atendimentosChat.find(x => x.id === id);
+    if (a && !a.alertaEnviadoEm) {
+      a.alertaEnviadoEm = agora;
+      if (a.status === 'aguardando') a.status = 'alerta_enviado';
+      registrarEventoAtendimentoLocal(id, 'Alerta enviado ao grupo', agora);
+    }
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ alerta_enviado_em: agora }).eq('id', id);
+  if (error) { showToast('Não foi possível registrar o alerta: ' + error.message); return; }
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
 async function registrarPrimeiraRespostaAtendimento(id) {
   const agora = new Date().toISOString();
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
-    if (a && !a.primeiraRespostaEm) { a.primeiraRespostaEm = agora; if (a.status === 'aguardando') a.status = 'respondido'; }
+    if (a && !a.primeiraRespostaEm) {
+      a.primeiraRespostaEm = agora;
+      if (['aguardando', 'alerta_enviado', 'em_atendimento'].includes(a.status)) a.status = 'respondido';
+      registrarEventoAtendimentoLocal(id, `Cliente respondido${a.colaborador ? ' por ' + a.colaborador : ''}`, agora);
+    }
     renderEficienciaView();
     return;
   }
   const { error } = await supabaseClient.from('atendimentos_chat').update({ primeira_resposta_em: agora }).eq('id', id);
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
-  await carregarAtendimentosChat();
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
+  renderEficienciaView();
+}
+/* Resposta explícita a "A demanda foi resolvida?" — nunca inferida a partir
+   de "respondido". Pode ser revertida (ex.: marcada como resolvida por
+   engano) a qualquer momento; resolvido_em é mantido coerente
+   automaticamente (só existe enquanto valor === 'resolvida'). */
+async function definirResolucaoAtendimento(id, valor) {
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.resolucao === valor) return;
+  const agora = new Date().toISOString();
+  if (!supabaseClient) {
+    if (a) {
+      a.resolucao = valor;
+      a.resolvidoEm = valor === 'resolvida' ? (a.resolvidoEm || agora) : null;
+      const evento = valor === 'resolvida' ? 'Demanda resolvida' : valor === 'nao_resolvida' ? 'Demanda marcada como NÃO resolvida' : 'Resolução revertida para pendente';
+      registrarEventoAtendimentoLocal(id, evento, valor === 'resolvida' ? a.resolvidoEm : agora);
+    }
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ resolucao: valor }).eq('id', id);
+  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
 async function finalizarAtendimentoChat(id) {
   const agora = new Date().toISOString();
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
-    if (a) { a.finalizadoEm = agora; a.status = 'finalizado'; }
+    if (a) { a.finalizadoEm = agora; a.status = 'finalizado'; registrarEventoAtendimentoLocal(id, 'Atendimento encerrado', agora); }
     renderEficienciaView();
     return;
   }
   const { error } = await supabaseClient.from('atendimentos_chat').update({ finalizado_em: agora }).eq('id', id);
   if (error) { showToast('Não foi possível finalizar: ' + error.message); return; }
-  await carregarAtendimentosChat();
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
 async function removerAtendimentoChat(id) {
@@ -422,17 +583,219 @@ async function removerAtendimentoChat(id) {
     if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
   }
   state.atendimentosChat = state.atendimentosChat.filter(a => a.id !== id);
+  if (state.atendimentoChatAtivoId === id) state.atendimentoChatAtivoId = null;
+  renderEficienciaView();
+}
+/* Histórico de troca de responsável (regra 4 do pedido): quem assumiu antes
+   fica registrado na linha do tempo — nunca sobrescrito, só o
+   colaborador_id/nome "atual" do atendimento muda. */
+function toggleReatribuirAtendimentoChat() { state.reatribuirAtendimentoChatAberto = !state.reatribuirAtendimentoChatAberto; renderEficienciaView(); }
+async function submitReatribuicaoAtendimentoChat(id) {
+  const a = state.atendimentosChat.find(x => x.id === id);
+  const novoColaboradorId = val('reat-colaborador');
+  const novoColaborador = state.employees.find(e => e.id === novoColaboradorId);
+  if (!a || !novoColaborador) { showToast('Selecione o novo colaborador responsável.'); return; }
+  if (novoColaboradorId === a.colaboradorId) { state.reatribuirAtendimentoChatAberto = false; renderEficienciaView(); return; }
+  const antigoNome = a.colaborador;
+  if (!supabaseClient) {
+    a.colaboradorId = novoColaboradorId; a.colaborador = novoColaborador.nome; a.setor = novoColaborador.setor;
+    registrarEventoAtendimentoLocal(id, `Atendimento assumido por ${novoColaborador.nome}${antigoNome ? ' (antes: ' + antigoNome + ')' : ''}`);
+    state.reatribuirAtendimentoChatAberto = false;
+    showToast('Atendimento reatribuído!');
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat')
+    .update({ colaborador_id: novoColaboradorId, colaborador_nome: novoColaborador.nome, setor: novoColaborador.setor }).eq('id', id);
+  if (error) { showToast('Não foi possível reatribuir: ' + error.message); return; }
+  state.reatribuirAtendimentoChatAberto = false;
+  showToast('Atendimento reatribuído!');
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
 function statusAtendimentoChatLabel(status) {
-  if (status === 'respondido') return 'Respondido';
-  if (status === 'finalizado') return 'Finalizado';
-  return 'Aguardando';
+  return (STATUS_ATENDIMENTO_CHAT.find(s => s.value === status) || STATUS_ATENDIMENTO_CHAT[0]).label;
 }
 function statusAtendimentoChatCor(status) {
-  if (status === 'finalizado') return 'var(--text-3)';
-  if (status === 'respondido') return 'var(--success)';
-  return 'var(--danger)';
+  return (STATUS_ATENDIMENTO_CHAT.find(s => s.value === status) || STATUS_ATENDIMENTO_CHAT[0]).cor;
+}
+
+/* ---------------- Detalhe do atendimento: linha do tempo completa ---------------- */
+function abrirAtendimentoChat(id) { state.atendimentoChatAtivoId = id; state.reatribuirAtendimentoChatAberto = false; renderEficienciaView(); }
+function fecharAtendimentoChat() {
+  state.atendimentoChatAtivoId = null;
+  // fecha também qualquer sub-formulário pendente aberto a partir do
+  // detalhe (avaliação/referência/reatribuição) — evita que ele reapareça
+  // "solto" (sem o contexto do atendimento) no painel geral.
+  if (state.avaliarAtendimentoChatId) { state.novaAvaliacaoQualidade = false; state.avaliarAtendimentoChatId = null; }
+  if (state.vincularReferenciaAtendimentoChatId) { state.novoAtendimentoReferencia = false; state.vincularReferenciaAtendimentoChatId = null; }
+  state.reatribuirAtendimentoChatAberto = false;
+  renderEficienciaView();
+}
+
+function formNovaAvaliacaoQualidade(atendimentoId) {
+  const atendimento = atendimentoId ? state.atendimentosChat.find(x => x.id === atendimentoId) : null;
+  return `
+    <div class="card" style="padding:18px; margin-bottom:16px; max-width:820px;">
+      ${atendimento ? `<div style="font-size:11.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-link"></i> Vinculada ao atendimento de ${esc(atendimento.cliente || 'cliente não identificado')} — ${esc(atendimento.colaborador || '')}</div>` : ''}
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="form-field"><label>Colaborador avaliado</label>
+          <select id="aq-colaborador" ${atendimento ? 'disabled' : ''}>${state.employees.map(e => `<option value="${e.id}" ${atendimento && e.id === atendimento.colaboradorId ? 'selected' : ''}>${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+        </div>
+        <div class="form-field"><label>Período (competência)</label><input id="aq-periodo" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+        ${CRITERIOS_QUALIDADE.map(c => `
+          <div class="form-field"><label>${esc(c.label)}</label><input id="aq-${c.key}" type="number" min="0" max="10" step="1" placeholder="0 a 10"></div>
+        `).join('')}
+        <div class="form-field" style="grid-column:span 2;"><label>Observações (opcional)</label><input id="aq-observacoes" placeholder="Contexto da avaliação"></div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="admin-add-btn" onclick="submitAvaliacaoQualidade()"><i class="fa-solid fa-plus"></i> Registrar avaliação</button>
+        <button class="admin-cancel-btn" onclick="toggleNovaAvaliacaoQualidade(${atendimentoId ? `'${atendimentoId}'` : ''})">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+function cardAvaliacaoQualidade(av) {
+  const media = mediaAvaliacaoQualidade(av);
+  const podeGerenciar = isAdmin() || av.avaliadorId === (getEffectiveEmployee()||{}).id || isGestorDoSetor(av.setor);
+  return `
+    <div class="card" style="padding:18px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
+        <div style="font-size:12px; color:var(--text-3);">Avaliado em ${esc(formatarDataBR((av.data||'').slice(0,10)))}${av.observacoes ? ' · ' + esc(av.observacoes) : ''}</div>
+        ${podeGerenciar ? `<button class="admin-del-btn" title="Remover" onclick="removerAvaliacaoQualidade('${av.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:10px; margin-top:12px;">
+        ${CRITERIOS_QUALIDADE.map(c => `<div style="font-size:12px; color:var(--text-2);">${esc(c.label)}: <strong>${Number(av[c.key])}/10</strong></div>`).join('')}
+      </div>
+      <div style="margin-top:12px; font-size:15px; font-weight:800;">Nota média: <span style="color:var(--brass);">${media.toFixed(1).replace('.0','')} / 10</span></div>
+    </div>
+  `;
+}
+function formNovoAtendimentoReferencia(atendimentoId) {
+  const atendimento = atendimentoId ? state.atendimentosChat.find(x => x.id === atendimentoId) : null;
+  return `
+    <div class="card" style="padding:18px; margin-bottom:16px; max-width:760px;">
+      ${atendimento ? `<div style="font-size:11.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-link"></i> Vinculado ao atendimento de ${esc(atendimento.cliente || 'cliente não identificado')} — ${esc(atendimento.colaborador || '')}</div>` : ''}
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="form-field" style="grid-column:span 2;"><label>Título</label><input id="ar-titulo" placeholder="Ex: Renegociação resolvida com elogio do cliente"></div>
+        <div class="form-field"><label>Colaborador</label>
+          <select id="ar-colaborador" ${atendimento ? 'disabled' : ''}>${state.employees.map(e => `<option value="${e.id}" ${atendimento && e.id === atendimento.colaboradorId ? 'selected' : ''}>${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+        </div>
+        ${!atendimento ? `
+        <div class="form-field"><label>Vincular a um atendimento <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
+          <select id="ar-atendimento">
+            <option value="">— Nenhum —</option>
+            ${state.atendimentosChat.map(a => `<option value="${a.id}">${esc(a.cliente || 'sem cliente')} — ${esc(a.colaborador || '')} (${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))})</option>`).join('')}
+          </select>
+        </div>` : ''}
+        <div class="form-field" style="grid-column:span 2;"><label>Descrição (opcional)</label><input id="ar-descricao" placeholder="Por que esse atendimento é referência"></div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="admin-add-btn" onclick="submitAtendimentoReferencia()"><i class="fa-solid fa-plus"></i> Registrar</button>
+        <button class="admin-cancel-btn" onclick="toggleNovoAtendimentoReferencia(${atendimentoId ? `'${atendimentoId}'` : ''})">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+function renderAtendimentoChatDetalhe() {
+  const a = state.atendimentosChat.find(x => x.id === state.atendimentoChatAtivoId);
+  if (!a) { state.atendimentoChatAtivoId = null; renderEficienciaView(); return; }
+  const podeGerenciar = podeGerenciarAtendimentoChat(a);
+  const eventos = eventosDoAtendimento(a.id);
+  const ind = calcIndicadoresAtendimento(a);
+  const avaliacoes = avaliacoesDoAtendimento(a.id);
+  const referencias = referenciasDoAtendimento(a.id);
+  const statusInfo = STATUS_ATENDIMENTO_CHAT.find(s => s.value === a.status) || STATUS_ATENDIMENTO_CHAT[0];
+
+  document.getElementById('content').innerHTML = `
+    <button class="open-btn" style="margin-bottom:10px;" onclick="fecharAtendimentoChat()"><i class="fa-solid fa-arrow-left"></i> Voltar ao Registro de Atendimentos</button>
+
+    <div class="card" style="padding:22px; margin-bottom:20px;">
+      <div style="font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--text-3); margin-bottom:4px;">
+        ATENDIMENTO${referencias.length ? ' · <span style="color:var(--brass);">⭐ Referência/bônus</span>' : ''}
+      </div>
+      <div style="font-size:20px; font-weight:800;">${esc(a.cliente || 'Cliente não identificado')}</div>
+      <div style="margin-top:8px;"><span class="status-pill" style="background:${statusInfo.cor}22; color:${statusInfo.cor};">${esc(statusInfo.label)}</span></div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-top:18px; font-size:12.5px; color:var(--text-2); line-height:1.8;">
+        <div><strong>Colaborador:</strong> ${esc(a.colaborador || '—')}</div>
+        <div><strong>Setor:</strong> ${esc(a.setor || '—')}</div>
+        <div><strong>Data:</strong> ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))}</div>
+      </div>
+      ${podeGerenciar ? `
+        <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
+          ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
+          ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
+          ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
+          <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
+        </div>
+        ${state.reatribuirAtendimentoChatAberto ? `
+          <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="form-field" style="min-width:220px;"><label>Novo colaborador responsável</label>
+              <select id="reat-colaborador">${state.employees.map(e => `<option value="${e.id}" ${e.id===a.colaboradorId?'selected':''}>${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+            </div>
+            <button class="admin-add-btn" onclick="submitReatribuicaoAtendimentoChat('${a.id}')"><i class="fa-solid fa-check"></i> Confirmar</button>
+            <button class="admin-cancel-btn" onclick="toggleReatribuirAtendimentoChat()">Cancelar</button>
+          </div>
+        ` : ''}
+      ` : ''}
+    </div>
+
+    <div class="section-title">Linha do tempo do atendimento</div>
+    <div class="card" style="overflow:hidden; margin-bottom:24px;">
+      ${eventos.length ? eventos.map(ev => `
+        <div class="aviso-row" style="cursor:default;">
+          <div class="priority-bar" style="background:var(--brass);"></div>
+          <div style="flex:1;">
+            <div style="font-size:12.5px; font-weight:600;">${esc(ev.evento)}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:2px;">${esc(formatarDataBR((ev.ocorridoEm||'').slice(0,10)))} às ${esc((ev.ocorridoEm||'').slice(11,16))}${ev.autorId ? ' · ' + esc(responsavelNome(ev.autorId)) : ''}</div>
+          </div>
+        </div>
+      `).join('') : `<div style="padding:20px; text-align:center; color:var(--text-3); font-size:12.5px;">Nenhum evento registrado ainda.</div>`}
+    </div>
+
+    <div class="section-title">Indicadores de tempo</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px;">
+      ${metricCard('Tempo até o alerta', ind.ateAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.ateAlertaMin), 'Só para acompanhamento do processo — não entra no tempo de resposta.')}
+      ${metricCard('Tempo de resposta', ind.tempoRespostaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.tempoRespostaMin), 'Mensagem do cliente até a resposta do colaborador.')}
+      ${metricCard('Tempo de resolução', ind.resolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.resolucaoMin), 'Mensagem do cliente até a demanda ser marcada como resolvida.')}
+    </div>
+
+    <div class="section-title">A demanda foi resolvida?</div>
+    <div class="card" style="padding:20px; margin-bottom:24px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:${a.resolucao === 'resolvida' ? '12px' : '0'};">
+        ${['resolvida', 'nao_resolvida', 'pendente'].map(v => {
+          const info = RESOLUCAO_ATENDIMENTO_INFO[v];
+          const ativo = a.resolucao === v;
+          return `<button class="status-pill" style="font-size:12.5px; padding:8px 14px; border:1px solid ${ativo ? info.cor : 'var(--border)'}; background:${ativo ? info.cor + '22' : 'transparent'}; color:${ativo ? info.cor : 'var(--text-2)'}; ${podeGerenciar ? 'cursor:pointer;' : 'cursor:default; opacity:.6;'}" ${podeGerenciar ? `onclick="definirResolucaoAtendimento('${a.id}','${v}')"` : 'disabled'}>${info.emoji} ${esc(info.label)}</button>`;
+        }).join('')}
+      </div>
+      ${a.resolucao === 'resolvida' && a.resolvidoEm ? `
+        <div style="font-size:12.5px; color:var(--text-2);">
+          Resolvida às <strong>${esc((a.resolvidoEm||'').slice(11,16))}</strong>
+          ${ind.resolucaoMin !== null ? ` · Tempo total de resolução: <strong>${formatarDuracaoMin(ind.resolucaoMin)}</strong>` : ''}
+        </div>
+      ` : ''}
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
+      <div class="section-title" style="margin-bottom:0;">Avaliação</div>
+      ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovaAvaliacaoQualidade('${a.id}')"><i class="fa-solid fa-star"></i> Avaliar este atendimento</button>` : ''}
+    </div>
+    ${state.novaAvaliacaoQualidade && state.avaliarAtendimentoChatId === a.id ? formNovaAvaliacaoQualidade(a.id) : ''}
+    ${avaliacoes.length ? avaliacoes.map(cardAvaliacaoQualidade).join('') : `<div class="card" style="padding:20px; text-align:center; color:var(--text-3); font-size:12.5px; margin-bottom:24px;">Nenhuma avaliação registrada para este atendimento ainda.</div>`}
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
+      <div class="section-title" style="margin-bottom:0;">Referência/bônus</div>
+      ${isAdmin() && !referencias.length ? `<button class="btn-brass" onclick="toggleNovoAtendimentoReferencia('${a.id}')"><i class="fa-solid fa-award"></i> Marcar como referência/bônus</button>` : ''}
+    </div>
+    ${state.novoAtendimentoReferencia && state.vincularReferenciaAtendimentoChatId === a.id ? formNovoAtendimentoReferencia(a.id) : ''}
+    ${referencias.length ? referencias.map(r => `
+      <div class="card" style="padding:16px; margin-bottom:12px;">
+        <div style="font-size:13px; font-weight:700;">⭐ ${esc(r.titulo)}</div>
+        <div style="font-size:12px; color:var(--text-2); margin-top:4px;">${esc(r.descricao || '')}</div>
+      </div>
+    `).join('') : `<div class="card" style="padding:20px; text-align:center; color:var(--text-3); font-size:12.5px;">Nenhum reconhecimento vinculado a este atendimento.</div>`}
+  `;
 }
 
 /* ---------------- Render principal ---------------- */
@@ -447,6 +810,7 @@ function renderEficienciaView() {
     `;
     return;
   }
+  if (state.atendimentoChatAtivoId) { renderAtendimentoChatDetalhe(); return; }
   garantirFiltroEficienciaPadrao();
   const ind = calcIndicadoresAlertas();
   const avaliacoes = avaliacoesQualidadeFiltradas();
@@ -550,22 +914,26 @@ function renderEficienciaView() {
     ` : ''}
     <div class="card" style="overflow:hidden; margin-bottom:24px;">
       ${atendimentosChat.length ? atendimentosChat.slice(0, 20).map(a => {
-        const podeGerenciar = isAdmin() || a.registradoPorId === (getEffectiveEmployee()||{}).id || isGestorDoSetor(a.setor);
+        const podeGerenciar = podeGerenciarAtendimentoChat(a);
+        const temReferencia = referenciasDoAtendimento(a.id).length > 0;
         const tempoResposta = a.primeiraRespostaEm ? formatarDuracaoMin(Math.round((new Date(a.primeiraRespostaEm) - new Date(a.iniciadoEm)) / 60000)) : null;
         return `
-        <div class="aviso-row" style="cursor:default;">
+        <div class="aviso-row" onclick="abrirAtendimentoChat('${a.id}')">
           <div class="priority-bar" style="background:${statusAtendimentoChatCor(a.status)};"></div>
           <div style="flex:1;">
             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
               <div style="font-size:13px; font-weight:700;">${esc(a.colaborador || '')}${a.cliente ? ' — ' + esc(a.cliente) : ''}</div>
               <span class="status-pill" style="background:${statusAtendimentoChatCor(a.status)}22; color:${statusAtendimentoChatCor(a.status)};">${statusAtendimentoChatLabel(a.status)}</span>
+              ${a.resolucao && a.resolucao !== 'pendente' ? `<span class="status-pill" style="background:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor}22; color:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor};">${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].emoji} ${esc(RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].label)}</span>` : ''}
+              ${temReferencia ? `<span class="status-pill" style="background:var(--brass-soft); color:var(--brass);">⭐ Referência</span>` : ''}
             </div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · 1ª resposta em ${tempoResposta}` : ''}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
           </div>
           ${podeGerenciar ? `
-          <div style="display:flex; gap:6px; align-items:flex-start;">
-            ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar 1ª resposta agora" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
-            ${a.status !== 'finalizado' ? `<button class="admin-edit-btn" title="Finalizar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
+          <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
+            ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
+            ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta agora" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
+            ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
             <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
           </div>` : ''}
         </div>
@@ -576,24 +944,7 @@ function renderEficienciaView() {
       <div class="section-title" style="margin-bottom:0;">Qualidade e Encantamento <span style="color:var(--text-3); text-transform:none; font-weight:600;">(escala de 0 a 10)</span></div>
       ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovaAvaliacaoQualidade()"><i class="fa-solid fa-plus"></i> Nova avaliação</button>` : ''}
     </div>
-    ${state.novaAvaliacaoQualidade && isAdmin() ? `
-      <div class="card" style="padding:18px; margin-bottom:16px; max-width:820px;">
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
-          <div class="form-field"><label>Colaborador avaliado</label>
-            <select id="aq-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
-          </div>
-          <div class="form-field"><label>Período (competência)</label><input id="aq-periodo" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-          ${CRITERIOS_QUALIDADE.map(c => `
-            <div class="form-field"><label>${esc(c.label)}</label><input id="aq-${c.key}" type="number" min="0" max="10" step="1" placeholder="0 a 10"></div>
-          `).join('')}
-          <div class="form-field" style="grid-column:span 2;"><label>Observações (opcional)</label><input id="aq-observacoes" placeholder="Contexto da avaliação"></div>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button class="admin-add-btn" onclick="submitAvaliacaoQualidade()"><i class="fa-solid fa-plus"></i> Registrar avaliação</button>
-          <button class="admin-cancel-btn" onclick="toggleNovaAvaliacaoQualidade()">Cancelar</button>
-        </div>
-      </div>
-    ` : ''}
+    ${state.novaAvaliacaoQualidade && isAdmin() && !state.avaliarAtendimentoChatId ? formNovaAvaliacaoQualidade(null) : ''}
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:16px;">
       ${CRITERIOS_QUALIDADE.map(c => {
         const media = mediaCriterioQualidade(avaliacoes, c.key);
@@ -604,12 +955,14 @@ function renderEficienciaView() {
       <div style="padding:14px 16px; font-weight:700; font-size:13px; border-bottom:1px solid var(--border);">Avaliações registradas (${avaliacoes.length})</div>
       ${avaliacoes.length ? avaliacoes.slice(0, 20).map(a => {
         const podeGerenciar = isAdmin() || a.avaliadorId === (getEffectiveEmployee()||{}).id || isGestorDoSetor(a.setor);
-        const mediaGeral = Math.round((CRITERIOS_QUALIDADE.reduce((acc,c)=>acc+(Number(a[c.key])||0),0)/CRITERIOS_QUALIDADE.length)*10)/10;
+        const mediaGeral = mediaAvaliacaoQualidade(a);
+        const atendimentoVinculado = a.atendimentoChatId ? state.atendimentosChat.find(x => x.id === a.atendimentoChatId) : null;
         return `
         <div class="aviso-row" style="cursor:default;">
           <div style="flex:1;">
             <div style="font-size:13px; font-weight:700;">${esc(a.colaborador || '')} <span class="status-pill" style="margin-left:6px;">média ${mediaGeral.toFixed(1)}</span></div>
             <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · competência ${esc(formatarDataBR(a.periodo))}${a.observacoes ? ' · ' + esc(a.observacoes) : ''}</div>
+            ${atendimentoVinculado ? `<button class="open-btn" style="margin-top:6px; display:inline-flex;" onclick="abrirAtendimentoChat('${atendimentoVinculado.id}')"><i class="fa-solid fa-link"></i> Ver atendimento: ${esc(atendimentoVinculado.cliente || 'sem cliente')}</button>` : ''}
           </div>
           ${podeGerenciar ? `<button class="admin-del-btn" title="Remover" onclick="removerAvaliacaoQualidade('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
         </div>
@@ -620,33 +973,21 @@ function renderEficienciaView() {
       <div class="section-title" style="margin-bottom:0;">Reconhecimento</div>
       ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovoAtendimentoReferencia()"><i class="fa-solid fa-plus"></i> Novo atendimento de referência</button>` : ''}
     </div>
-    ${state.novoAtendimentoReferencia && isAdmin() ? `
-      <div class="card" style="padding:18px; margin-bottom:16px; max-width:760px;">
-        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
-          <div class="form-field" style="grid-column:span 2;"><label>Título</label><input id="ar-titulo" placeholder="Ex: Renegociação resolvida com elogio do cliente"></div>
-          <div class="form-field"><label>Colaborador</label>
-            <select id="ar-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
-          </div>
-          <div class="form-field" style="grid-column:span 2;"><label>Descrição (opcional)</label><input id="ar-descricao" placeholder="Por que esse atendimento é referência"></div>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button class="admin-add-btn" onclick="submitAtendimentoReferencia()"><i class="fa-solid fa-plus"></i> Registrar</button>
-          <button class="admin-cancel-btn" onclick="toggleNovoAtendimentoReferencia()">Cancelar</button>
-        </div>
-      </div>
-    ` : ''}
+    ${state.novoAtendimentoReferencia && isAdmin() && !state.vincularReferenciaAtendimentoChatId ? formNovoAtendimentoReferencia(null) : ''}
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:16px;">
       ${metricCard('Atendimentos de referência', atendimentosRef.length)}
     </div>
     <div class="card" style="overflow:hidden;">
       ${atendimentosRef.length ? atendimentosRef.slice(0, 20).map(r => {
         const podeGerenciar = isAdmin() || r.registradoPorId === (getEffectiveEmployee()||{}).id || isGestorDoSetor(r.setor);
+        const atendimentoVinculado = r.atendimentoChatId ? state.atendimentosChat.find(x => x.id === r.atendimentoChatId) : null;
         return `
         <div class="aviso-row" style="cursor:default;">
           <div style="flex:1;">
-            <div style="font-size:13px; font-weight:700;">${esc(r.titulo)}</div>
+            <div style="font-size:13px; font-weight:700;">⭐ ${esc(r.titulo)}</div>
             <div style="font-size:12px; color:var(--text-2); margin:4px 0;">${esc(r.descricao || '')}</div>
             <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(r.colaborador || '')} · ${esc(r.setor || '')} · ${esc(formatarDataBR((r.data||'').slice(0,10)))}</div>
+            ${atendimentoVinculado ? `<button class="open-btn" style="margin-top:6px; display:inline-flex;" onclick="abrirAtendimentoChat('${atendimentoVinculado.id}')"><i class="fa-solid fa-link"></i> Ver atendimento vinculado</button>` : ''}
           </div>
           ${podeGerenciar ? `<button class="admin-del-btn" title="Remover" onclick="removerAtendimentoReferencia('${r.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
         </div>

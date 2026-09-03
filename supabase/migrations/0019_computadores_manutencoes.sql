@@ -5,9 +5,10 @@
 -- computadores reserva.
 --
 -- Reaproveita 100% o que já existe: colaborador (funcionarios), setor
--- (setor_tipo/setores) e o padrão de RLS via fn_is_admin()/fn_is_gestor()
--- já usado em sinalizacoes/avaliacoes_qualidade/equipes. Nenhuma tabela ou
--- coluna existente é alterada, renomeada ou removida.
+-- (tabela "setores", dinâmica desde 0012_setores_dinamicos.sql) e o padrão
+-- de RLS via fn_is_admin()/fn_is_gestor() já usado em
+-- sinalizacoes/avaliacoes_qualidade/equipes. Nenhuma tabela ou coluna
+-- existente é alterada, renomeada ou removida.
 --
 -- Migração 100% incremental e não destrutiva.
 -- ============================================================================
@@ -59,7 +60,7 @@ create table computadores (
 
   colaborador_id uuid references funcionarios(id) on delete set null,
   colaborador_nome text,                   -- histórico (mesmo padrão de sinalizacoes.colaborador_nome)
-  setor setor_tipo,                        -- preenchido automaticamente a partir do colaborador selecionado
+  setor text references setores(nome) on update cascade on delete restrict, -- preenchido automaticamente a partir do colaborador selecionado
 
   status computador_status not null default 'disponivel',
   eh_reserva boolean not null default false,  -- pertence ao "pool" de computadores reserva (independe do status operacional atual: um reserva emprestado fica com status em_uso, mas continua eh_reserva = true)
