@@ -34,19 +34,33 @@ const CRITERIOS_QUALIDADE = [
    resposta, resolução, encerramento, avaliação e reconhecimento/bônus são
    sempre vinculados a ele (nunca informações soltas) — ver migração 0020.
    "Respondido" (alguém respondeu) e "Resolvido" (o problema foi realmente
-   solucionado) são eventos DIFERENTES, cada um com sua própria data/hora.
-   Os estados "aguardando"/"finalizado" já existiam (migração 0017) e
-   continuam sendo gravados exatamente como antes — só ganharam um rótulo
-   mais claro na interface ("Pendente"/"Encerrado"), para não invalidar
-   nenhum atendimento já registrado. */
+   solucionado) são informações DIFERENTES: "status" é só o andamento do
+   atendimento (fluxo); a resolução é uma pergunta própria e independente —
+   "A demanda foi resolvida?" (Sim/Não/Pendente) — na coluna "resolucao",
+   nunca inferida de "respondido". Os estados "aguardando"/"finalizado" já
+   existiam (migração 0017) e continuam sendo gravados exatamente como
+   antes — só ganharam um rótulo mais claro na interface
+   ("Pendente"/"Encerrado"), para não invalidar nenhum atendimento já
+   registrado.
+
+   REGRA PRINCIPAL DE TEMPO: "tempo de resposta" é sempre
+   primeiraRespostaEm - iniciadoEm (mensagem do cliente até a resposta do
+   colaborador), independente do horário do alerta — o alerta é só
+   registrado à parte, para acompanhamento do processo (calcIndicadoresAtendimento). */
 const STATUS_ATENDIMENTO_CHAT = [
   { value: 'aguardando', label: 'Pendente', cor: 'var(--danger)' },
   { value: 'alerta_enviado', label: 'Alerta enviado', cor: '#B4881F' },
   { value: 'em_atendimento', label: 'Em atendimento', cor: '#2E6DB4' },
   { value: 'respondido', label: 'Respondido', cor: 'var(--success)' },
-  { value: 'resolvido', label: 'Resolvido', cor: 'var(--success)' },
   { value: 'finalizado', label: 'Encerrado', cor: 'var(--text-3)' },
 ];
+/* "A demanda foi resolvida?" — resposta explícita, independente do status
+   do fluxo acima. Pode ser alterada/revertida a qualquer momento. */
+const RESOLUCAO_ATENDIMENTO_INFO = {
+  pendente: { label: 'Pendente', emoji: '⚪', cor: 'var(--text-3)' },
+  resolvida: { label: 'Sim — Resolvida', emoji: '🟢', cor: 'var(--success)' },
+  nao_resolvida: { label: 'Não — Não resolvida', emoji: '🔴', cor: 'var(--danger)' },
+};
 /* Mesma regra de gestão já usada nas ações de atendimento (antes repetida
    inline): administrador, quem registrou, gestor do setor, ou o próprio
    colaborador responsável pelo atendimento (agora também pode agir sobre o
@@ -85,10 +99,9 @@ function calcMinutosEntre(isoInicio, isoFim) {
 }
 function calcIndicadoresAtendimento(a) {
   return {
-    ateAlertaMin: calcMinutosEntre(a.iniciadoEm, a.alertaEnviadoEm),
-    respostaPosAlertaMin: calcMinutosEntre(a.alertaEnviadoEm, a.primeiraRespostaEm),
-    resolucaoMin: calcMinutosEntre(a.iniciadoEm, a.resolvidoEm),
-    posAlertaAteResolucaoMin: calcMinutosEntre(a.alertaEnviadoEm, a.resolvidoEm),
+    ateAlertaMin: calcMinutosEntre(a.iniciadoEm, a.alertaEnviadoEm), // só para acompanhamento do processo — nunca usado no tempo de resposta
+    tempoRespostaMin: calcMinutosEntre(a.iniciadoEm, a.primeiraRespostaEm), // mensagem do cliente -> resposta do colaborador, sempre, independente do alerta
+    resolucaoMin: calcMinutosEntre(a.iniciadoEm, a.resolvidoEm), // mensagem do cliente -> resolução (só existe data quando resolucao = "resolvida")
   };
 }
 
@@ -474,7 +487,7 @@ async function submitAtendimentoChat() {
     const novo = {
       id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
       cliente, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
-      resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
+      resolucao: 'pendente', resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
     };
     state.atendimentosChat.unshift(novo);
     registrarEventoAtendimentoLocal(novo.id, `Atendimento registrado — cliente enviou mensagem/solicitação${cliente ? ' (' + cliente + ')' : ''}`, iniciadoEm);
@@ -528,21 +541,26 @@ async function registrarPrimeiraRespostaAtendimento(id) {
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
-/* "Resolvido" nunca é inferido a partir de "respondido" — só é gravado
-   quando esta ação é explicitamente executada (regra 2/3 do pedido). */
-async function resolverAtendimentoChat(id) {
+/* Resposta explícita a "A demanda foi resolvida?" — nunca inferida a partir
+   de "respondido". Pode ser revertida (ex.: marcada como resolvida por
+   engano) a qualquer momento; resolvido_em é mantido coerente
+   automaticamente (só existe enquanto valor === 'resolvida'). */
+async function definirResolucaoAtendimento(id, valor) {
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.resolucao === valor) return;
   const agora = new Date().toISOString();
   if (!supabaseClient) {
-    const a = state.atendimentosChat.find(x => x.id === id);
-    if (a && !a.resolvidoEm) {
-      a.resolvidoEm = agora; a.status = 'resolvido';
-      registrarEventoAtendimentoLocal(id, 'Atendimento resolvido', agora);
+    if (a) {
+      a.resolucao = valor;
+      a.resolvidoEm = valor === 'resolvida' ? (a.resolvidoEm || agora) : null;
+      const evento = valor === 'resolvida' ? 'Demanda resolvida' : valor === 'nao_resolvida' ? 'Demanda marcada como NÃO resolvida' : 'Resolução revertida para pendente';
+      registrarEventoAtendimentoLocal(id, evento, valor === 'resolvida' ? a.resolvidoEm : agora);
     }
     renderEficienciaView();
     return;
   }
-  const { error } = await supabaseClient.from('atendimentos_chat').update({ resolvido_em: agora }).eq('id', id);
-  if (error) { showToast('Não foi possível marcar como resolvido: ' + error.message); return; }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ resolucao: valor }).eq('id', id);
+  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
@@ -707,7 +725,6 @@ function renderAtendimentoChatDetalhe() {
         <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
           ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
           ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
-          ${!a.resolvidoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="resolverAtendimentoChat('${a.id}')"><i class="fa-solid fa-circle-check"></i> Marcar como resolvido</button>` : ''}
           ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
           <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
         </div>
@@ -738,10 +755,26 @@ function renderAtendimentoChatDetalhe() {
 
     <div class="section-title">Indicadores de tempo</div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px;">
-      ${metricCard('Tempo até o alerta', ind.ateAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.ateAlertaMin))}
-      ${metricCard('Tempo de resposta (após alerta)', ind.respostaPosAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.respostaPosAlertaMin))}
-      ${metricCard('Tempo de resolução', ind.resolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.resolucaoMin))}
-      ${metricCard('Tempo pós-alerta até resolução', ind.posAlertaAteResolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.posAlertaAteResolucaoMin))}
+      ${metricCard('Tempo até o alerta', ind.ateAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.ateAlertaMin), 'Só para acompanhamento do processo — não entra no tempo de resposta.')}
+      ${metricCard('Tempo de resposta', ind.tempoRespostaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.tempoRespostaMin), 'Mensagem do cliente até a resposta do colaborador.')}
+      ${metricCard('Tempo de resolução', ind.resolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.resolucaoMin), 'Mensagem do cliente até a demanda ser marcada como resolvida.')}
+    </div>
+
+    <div class="section-title">A demanda foi resolvida?</div>
+    <div class="card" style="padding:20px; margin-bottom:24px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:${a.resolucao === 'resolvida' ? '12px' : '0'};">
+        ${['resolvida', 'nao_resolvida', 'pendente'].map(v => {
+          const info = RESOLUCAO_ATENDIMENTO_INFO[v];
+          const ativo = a.resolucao === v;
+          return `<button class="status-pill" style="font-size:12.5px; padding:8px 14px; border:1px solid ${ativo ? info.cor : 'var(--border)'}; background:${ativo ? info.cor + '22' : 'transparent'}; color:${ativo ? info.cor : 'var(--text-2)'}; ${podeGerenciar ? 'cursor:pointer;' : 'cursor:default; opacity:.6;'}" ${podeGerenciar ? `onclick="definirResolucaoAtendimento('${a.id}','${v}')"` : 'disabled'}>${info.emoji} ${esc(info.label)}</button>`;
+        }).join('')}
+      </div>
+      ${a.resolucao === 'resolvida' && a.resolvidoEm ? `
+        <div style="font-size:12.5px; color:var(--text-2);">
+          Resolvida às <strong>${esc((a.resolvidoEm||'').slice(11,16))}</strong>
+          ${ind.resolucaoMin !== null ? ` · Tempo total de resolução: <strong>${formatarDuracaoMin(ind.resolucaoMin)}</strong>` : ''}
+        </div>
+      ` : ''}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
@@ -891,15 +924,15 @@ function renderEficienciaView() {
             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
               <div style="font-size:13px; font-weight:700;">${esc(a.colaborador || '')}${a.cliente ? ' — ' + esc(a.cliente) : ''}</div>
               <span class="status-pill" style="background:${statusAtendimentoChatCor(a.status)}22; color:${statusAtendimentoChatCor(a.status)};">${statusAtendimentoChatLabel(a.status)}</span>
+              ${a.resolucao && a.resolucao !== 'pendente' ? `<span class="status-pill" style="background:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor}22; color:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor};">${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].emoji} ${esc(RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].label)}</span>` : ''}
               ${temReferencia ? `<span class="status-pill" style="background:var(--brass-soft); color:var(--brass);">⭐ Referência</span>` : ''}
             </div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · 1ª resposta em ${tempoResposta}` : ''}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
           </div>
           ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
             ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="enviarAlertaAtendimentoChat('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
             ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta agora" onclick="registrarPrimeiraRespostaAtendimento('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
-            ${!a.resolvidoEm ? `<button class="admin-edit-btn" title="Marcar como resolvido" onclick="resolverAtendimentoChat('${a.id}')"><i class="fa-solid fa-circle-check" style="font-size:12px;"></i></button>` : ''}
             ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
             <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
           </div>` : ''}

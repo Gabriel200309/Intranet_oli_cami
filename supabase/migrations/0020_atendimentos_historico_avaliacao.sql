@@ -12,6 +12,13 @@
 -- estão, só ganham um vínculo OPCIONAL de volta para o atendimento que as
 -- originou. Nenhuma tabela, coluna, view ou política existente é removida.
 --
+-- REGRA PRINCIPAL de tempo: "tempo de resposta" é sempre
+-- primeira_resposta_em - iniciado_em (mensagem do cliente até a resposta do
+-- colaborador), INDEPENDENTE do horário do alerta — o alerta é registrado
+-- à parte (alerta_enviado_em), só para acompanhamento do processo. A
+-- resolução da demanda ("A demanda foi resolvida? Sim/Não/Pendente") é uma
+-- pergunta própria, na coluna "resolucao" — nunca inferida de "respondido".
+--
 -- Migração 100% incremental e não destrutiva:
 --   - "aguardando"/"respondido"/"finalizado" (enum atendimento_status já
 --     existente) continuam válidos e são apenas reapresentados na
@@ -36,7 +43,13 @@
 -- ---------------------------------------------------------------------------
 alter type atendimento_status add value if not exists 'alerta_enviado' after 'aguardando';
 alter type atendimento_status add value if not exists 'em_atendimento' after 'alerta_enviado';
-alter type atendimento_status add value if not exists 'resolvido' after 'respondido';
+
+-- "A demanda foi resolvida?" é uma pergunta INDEPENDENTE do andamento do
+-- atendimento (status) — por isso vira sua própria coluna/enum, não mais um
+-- valor de status. Isso também deixa "Pendente"/"Resolvida"/"Não resolvida"
+-- livres para serem alteradas a qualquer momento (inclusive revertidas) sem
+-- interferir no status do fluxo (aguardando/alerta_enviado/.../finalizado).
+create type atendimento_resolucao as enum ('pendente', 'resolvida', 'nao_resolvida');
 
 -- ---------------------------------------------------------------------------
 -- 2) Colunas novas em atendimentos_chat — nenhuma equivalente já existia:
@@ -49,9 +62,11 @@ alter type atendimento_status add value if not exists 'resolvido' after 'respond
 -- ---------------------------------------------------------------------------
 alter table atendimentos_chat add column if not exists alerta_enviado_em timestamptz;
 alter table atendimentos_chat add column if not exists resolvido_em timestamptz;
-comment on column atendimentos_chat.alerta_enviado_em is 'Data/hora em que o alerta foi enviado ao grupo — vinculado a este atendimento (nunca um registro solto).';
-comment on column atendimentos_chat.resolvido_em is 'Data/hora em que a demanda do cliente foi efetivamente solucionada. Diferente de primeira_resposta_em (só indica que alguém respondeu) e de finalizado_em (encerramento/arquivamento do registro).';
-comment on column atendimentos_chat.status is 'aguardando="Pendente", alerta_enviado="Alerta enviado", em_atendimento="Em atendimento", respondido="Respondido", resolvido="Resolvido", finalizado="Encerrado" (rótulos aplicados na interface — ver js/eficiencia-dashboard.js).';
+alter table atendimentos_chat add column if not exists resolucao atendimento_resolucao not null default 'pendente';
+comment on column atendimentos_chat.alerta_enviado_em is 'Data/hora em que o alerta foi enviado ao grupo — registrada separadamente, apenas para acompanhamento do processo. NÃO entra no cálculo do tempo de resposta (regra explícita: tempo de resposta = primeira_resposta_em - iniciado_em, independentemente do horário do alerta).';
+comment on column atendimentos_chat.resolucao is 'Resposta explícita à pergunta "A demanda foi resolvida?" — pendente/resolvida/nao_resolvida. Independente do status do fluxo: "respondido" não implica "resolvida".';
+comment on column atendimentos_chat.resolvido_em is 'Data/hora em que resolucao passou a "resolvida" (mantida automaticamente pelo trigger trg_atendimento_chat_resolucao_auto — nula sempre que resolucao não é "resolvida"). Diferente de primeira_resposta_em (só indica que alguém respondeu) e de finalizado_em (encerramento/arquivamento do registro).';
+comment on column atendimentos_chat.status is 'aguardando="Pendente", alerta_enviado="Alerta enviado", em_atendimento="Em atendimento", respondido="Respondido", finalizado="Encerrado" (rótulos aplicados na interface — ver js/eficiencia-dashboard.js). A resolução da demanda é controlada separadamente pela coluna "resolucao".';
 
 -- ---------------------------------------------------------------------------
 -- 3) Linha do tempo do atendimento — histórico append-only, mesmo padrão de
@@ -121,9 +136,17 @@ begin
     values (new.id, 'Cliente respondido' || case when new.colaborador_nome is not null then ' por ' || new.colaborador_nome else '' end, new.primeira_resposta_em);
   end if;
 
-  if new.resolvido_em is distinct from old.resolvido_em and new.resolvido_em is not null then
-    insert into atendimento_chat_eventos (atendimento_id, evento, ocorrido_em)
-    values (new.id, 'Atendimento resolvido', new.resolvido_em);
+  if new.resolucao is distinct from old.resolucao then
+    if new.resolucao = 'resolvida' then
+      insert into atendimento_chat_eventos (atendimento_id, evento, ocorrido_em)
+      values (new.id, 'Demanda resolvida', coalesce(new.resolvido_em, now()));
+    elsif new.resolucao = 'nao_resolvida' then
+      insert into atendimento_chat_eventos (atendimento_id, evento, ocorrido_em)
+      values (new.id, 'Demanda marcada como NÃO resolvida', now());
+    else
+      insert into atendimento_chat_eventos (atendimento_id, evento, ocorrido_em)
+      values (new.id, 'Resolução revertida para pendente', now());
+    end if;
   end if;
 
   if new.finalizado_em is distinct from old.finalizado_em and new.finalizado_em is not null then
@@ -140,13 +163,11 @@ after insert or update on atendimentos_chat
 for each row execute function trg_atendimento_chat_eventos();
 
 -- ---------------------------------------------------------------------------
--- 6) status automático mais rico: além da regra já existente em 0017
--- (resposta tira de "aguardando"; fim marca "finalizado"), agora também:
--- alerta enviado avança de "aguardando" para "alerta_enviado", e a
--- resolução avança para "resolvido" (sem depender de já estar
--- "finalizado" — resolvido e encerrado são eventos diferentes, conforme
--- pedido). Substitui a função de 0017 (mesmo nome/trigger), então nenhum
--- gatilho duplicado passa a existir.
+-- 6) status automático do FLUXO do atendimento — não confundir com a
+-- resolução (ver item 6-b): alerta enviado avança de "aguardando" para
+-- "alerta_enviado"; primeira resposta avança para "respondido"; fim marca
+-- "finalizado". Substitui a função de 0017 (mesmo nome/trigger), então
+-- nenhum gatilho duplicado passa a existir.
 -- ---------------------------------------------------------------------------
 create or replace function trg_atendimento_chat_status_auto()
 returns trigger
@@ -162,9 +183,6 @@ begin
      and new.status in ('aguardando', 'alerta_enviado', 'em_atendimento') then
     new.status := 'respondido';
   end if;
-  if new.resolvido_em is not null and old.resolvido_em is null then
-    new.status := 'resolvido';
-  end if;
   if new.finalizado_em is not null and old.finalizado_em is null then
     new.status := 'finalizado';
   end if;
@@ -174,6 +192,34 @@ $$;
 -- (o trigger "trg_atendimentos_chat_status_auto" criado em 0017 já aponta
 -- para esta função por nome — create or replace acima é suficiente, não é
 -- preciso recriar o trigger.)
+
+-- ---------------------------------------------------------------------------
+-- 6-b) resolvido_em sempre coerente com resolucao — REGRA PRINCIPAL: quem
+-- decide "resolvido_em" é exclusivamente a resposta à pergunta "A demanda
+-- foi resolvida?" (coluna resolucao), nunca o status do fluxo. Ao marcar
+-- "resolvida", grava a data/hora (se ainda não tiver uma); ao sair de
+-- "resolvida" (revertido para pendente/não resolvida), limpa a data —
+-- mesmo padrão de trg_sinalizacao_resolvido_em (0016).
+-- ---------------------------------------------------------------------------
+create or replace function trg_atendimento_chat_resolucao_auto()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.resolucao = 'resolvida' and old.resolucao is distinct from 'resolvida' and new.resolvido_em is null then
+    new.resolvido_em := now();
+  elsif new.resolucao <> 'resolvida' and old.resolucao = 'resolvida' then
+    new.resolvido_em := null;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_atendimentos_chat_resolucao_auto
+before update on atendimentos_chat
+for each row execute function trg_atendimento_chat_resolucao_auto();
 
 -- ---------------------------------------------------------------------------
 -- 7) RLS
@@ -247,5 +293,11 @@ insert into atendimento_chat_eventos (atendimento_id, evento, ocorrido_em)
 select id, 'Atendimento encerrado', finalizado_em
 from atendimentos_chat
 where finalizado_em is not null;
+
+-- Segurança extra (não deveria haver nenhuma linha nesta situação, já que
+-- esta é a própria migração que cria "resolucao" com padrão "pendente"):
+-- se por algum motivo já existir resolvido_em preenchido, mantém a coluna
+-- nova coerente com o dado antigo em vez de deixá-las contraditórias.
+update atendimentos_chat set resolucao = 'resolvida' where resolvido_em is not null and resolucao = 'pendente';
 
 select '✅ Migração 0020 concluída com sucesso.' as status;
