@@ -505,12 +505,31 @@ async function submitAtendimentoChat() {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
     cliente: cliente || null, link_chatguru: linkChatguru || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
   };
-  const { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
+  let { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
+  let linkNaoSalvo = false;
+  if (error && colunaAusente(error, 'link_chatguru')) {
+    // Campo opcional (migração 0021 ainda não aplicada no banco): registra o
+    // atendimento normalmente mesmo assim, só sem o link — o link do
+    // ChatGuru nunca deve travar o cadastro do atendimento.
+    delete payload.link_chatguru;
+    ({ error } = await supabaseClient.from('atendimentos_chat').insert(payload));
+    linkNaoSalvo = !error && !!linkChatguru;
+  }
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novoAtendimentoChat = false;
-  showToast('Atendimento registrado!');
+  showToast(linkNaoSalvo
+    ? 'Atendimento registrado! O link do ChatGuru não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0021 no banco.'
+    : 'Atendimento registrado!');
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
+}
+/* Detecta o erro do Postgres/PostgREST de coluna inexistente (migração
+   ainda não aplicada no banco), para os campos opcionais mais recentes
+   nunca travarem uma ação que já funcionava sem eles. */
+function colunaAusente(error, nomeColuna) {
+  if (!error) return false;
+  if (error.code === '42703' || error.code === 'PGRST204') return true;
+  return new RegExp(nomeColuna, 'i').test(error.message || '') && /column|coluna/i.test(error.message || '');
 }
 /* Enviar alerta e registrar resposta SEMPRE perguntam o horário em que o
    evento realmente aconteceu (pré-preenchido com "agora", mas editável) —
@@ -694,7 +713,12 @@ async function salvarLinkChatguru(id) {
     return;
   }
   const { error } = await supabaseClient.from('atendimentos_chat').update({ link_chatguru: link || null }).eq('id', id);
-  if (error) { showToast('Não foi possível salvar o link: ' + error.message); return; }
+  if (error) {
+    showToast(colunaAusente(error, 'link_chatguru')
+      ? 'O campo de link do ChatGuru ainda não existe no banco — peça ao administrador para aplicar a migração 0021.'
+      : 'Não foi possível salvar o link: ' + error.message);
+    return;
+  }
   state.editarLinkChatguruAberto = false;
   showToast('Link do ChatGuru salvo!');
   await carregarAtendimentosChat();
