@@ -456,13 +456,15 @@ function onModalAction() {
 
 /* ================= FILE UPLOADS ================= */
 document.getElementById('logoFileInput').addEventListener('change', function(e) {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files[0]; this.value = ''; if (!file) return;
+  if (!isAdmin()) { showToast('Somente administradores podem alterar a logo.'); return; }
   const reader = new FileReader();
   reader.onload = () => { state.logo = reader.result; renderSidebar(); showToast('Logo atualizada!'); };
   reader.readAsDataURL(file);
 });
 document.getElementById('teamFileInput').addEventListener('change', function(e) {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files[0]; this.value = ''; if (!file) return;
+  if (!isAdmin()) { showToast('Somente administradores podem alterar a foto do time.'); return; }
   const reader = new FileReader();
   reader.onload = () => { state.teamPhoto = reader.result; renderHero(); showToast('Foto do time atualizada!'); };
   reader.readAsDataURL(file);
@@ -478,6 +480,7 @@ document.getElementById('cursoUploadInput').addEventListener('change', async fun
   const file = e.target.files[0]; if (!file) return;
   const target = this.dataset.target;
   this.value = '';
+  if (!isAdmin()) { showToast('Somente administradores podem enviar arquivos de cursos.'); return; }
   if (!supabaseClient) {
     const reader = new FileReader();
     reader.onload = () => aplicarUploadCurso(target, file.name, reader.result);
@@ -495,6 +498,7 @@ document.getElementById('cursoUploadInput').addEventListener('change', async fun
 document.getElementById('funcionarioFotoInput').addEventListener('change', async function(e) {
   const file = e.target.files[0]; if (!file) return;
   this.value = '';
+  if (!isAdmin()) { showToast('Somente administradores podem enviar fotos de funcionários.'); return; }
   const aplicar = (url) => {
     state.editing.employeeFotoTemp = url;
     const img = document.getElementById('f-foto-preview');
