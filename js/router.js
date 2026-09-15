@@ -116,8 +116,19 @@ function renderNotificacoesView() {
       `).join('')}
     </div>
   `;
-  // abrir a central marca as notificações como lidas
-  if (eramNaoLidas.size > 0) { todas.forEach(n => n.lida = true); renderHeader(); }
+  // abrir a central marca as notificações como lidas — local e no banco
+  // (sem isso, o status "lida" não persistia: ao recarregar a página ou
+  // relogar, as notificações voltavam a aparecer como não lidas).
+  if (eramNaoLidas.size > 0) {
+    const idsNaoLidas = [...eramNaoLidas];
+    todas.forEach(n => { if (eramNaoLidas.has(n.id)) n.lida = true; });
+    renderHeader();
+    if (supabaseClient) {
+      supabaseClient.from('notificacoes').update({ lida: true }).in('id', idsNaoLidas).then(({ error }) => {
+        if (error) console.error('Erro ao marcar notificações como lidas:', error.message);
+      });
+    }
+  }
 }
 
 function renderCursosCatalogo() {

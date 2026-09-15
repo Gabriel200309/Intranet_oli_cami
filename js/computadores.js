@@ -203,9 +203,10 @@ async function submitEdicaoComputador(id) {
   const emp = getEffectiveEmployee();
   const anterior = computadorPorId(id);
   const statusMudou = anterior && anterior.status !== f.status;
+  const statusAnteriorLabel = anterior ? statusComputadorInfo(anterior.status).label : '';
   if (!supabaseClient) {
     Object.assign(anterior, f, { atualizadoPor: emp ? emp.id : null, atualizadoEm: new Date().toISOString() });
-    if (statusMudou) registrarHistoricoLocal(id, `Status alterado de "${statusComputadorInfo(anterior.status).label}" para "${statusComputadorInfo(f.status).label}"`);
+    if (statusMudou) registrarHistoricoLocal(id, `Status alterado de "${statusAnteriorLabel}" para "${statusComputadorInfo(f.status).label}"`);
     state.editingComputadorId = null;
     showToast('Computador atualizado!');
     renderComputadoresView();
