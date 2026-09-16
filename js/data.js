@@ -54,6 +54,28 @@ const TIPOS_ERRO_SINALIZACAO = [
   "Erro de cálculo/financeiro", "Descumprimento de instrução",
   "Erro de sistema/lançamento", "Outro",
 ];
+/* Fonte efetiva dos "Tipos de Erro" usados nos seletores (registro de
+   sinalização e filtro do Painel de Eficiência): os tipos cadastrados pelo
+   administrador em Administração > Tipos de Erro (state.tiposErroSinalizacao
+   — migração 0022), só os ativos, na ordem definida. Cai de volta para a
+   lista fixa local (TIPOS_ERRO_SINALIZACAO) quando o catálogo ainda está
+   vazio — modo local/demonstração, ou banco sem a migração 0022 aplicada —
+   para nenhum seletor ficar sem opções. */
+function tiposErroDisponiveis() {
+  const ativos = (state.tiposErroSinalizacao || []).filter(t => t.ativo);
+  if (!ativos.length) return TIPOS_ERRO_SINALIZACAO;
+  return ativos
+    .slice()
+    .sort((a, b) => {
+      const aTemOrdem = a.ordem !== null && a.ordem !== undefined;
+      const bTemOrdem = b.ordem !== null && b.ordem !== undefined;
+      if (aTemOrdem && bTemOrdem && a.ordem !== b.ordem) return a.ordem - b.ordem;
+      if (aTemOrdem && !bTemOrdem) return -1;
+      if (!aTemOrdem && bTemOrdem) return 1;
+      return a.nome.localeCompare(b.nome, 'pt-BR');
+    })
+    .map(t => t.nome);
+}
 
 const NOTIFICACOES = [
   { texto: "Novo aviso publicado: protocolo digital", tempo: "há 2h" },

@@ -8,6 +8,21 @@
    Cada tabela tem RLS: o próprio Postgres já devolve só o que o usuário
    logado pode ver (ver supabase/migrations/0007_rls_policies.sql). */
 
+/* Registra, em state.migracoesPendentes, que uma tabela usada pelo Painel
+   de Eficiência, Qualidade e Alertas ainda não existe no banco (migração
+   correspondente — ver supabase/migrations — ainda não aplicada). Detecta
+   especificamente "relation does not exist" (42P01, Postgres) e "not found
+   in the schema cache" (PGRST205, PostgREST) — nunca mascara outros tipos
+   de erro (permissão, rede, etc.), que continuam só no console.error de
+   cada carregarX(). Usado para mostrar um aviso claro no painel em vez de
+   telas silenciosamente vazias. */
+function registrarSeMigracaoPendente(error, migracao) {
+  if (!error) return false;
+  const ausente = error.code === '42P01' || error.code === 'PGRST205';
+  if (ausente && !state.migracoesPendentes.includes(migracao)) state.migracoesPendentes.push(migracao);
+  return ausente;
+}
+
 function dataBRparaISO(br) {
   if (!br) return null;
   const m = String(br).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -62,6 +77,12 @@ async function carregarClassificacoes() {
   state.classificacoes = (data || []).map(c => ({ id: c.id, nome: c.nome, cor: c.cor }));
 }
 
+async function carregarTiposErroSinalizacao() {
+  const { data, error } = await supabaseClient.from('tipos_erro_sinalizacao').select('*').order('ordem').order('nome');
+  if (error) { registrarSeMigracaoPendente(error, 'tipos_erro_sinalizacao (migração 0022)'); console.error('Erro ao carregar tipos de erro:', error.message); return; }
+  state.tiposErroSinalizacao = (data || []).map(t => ({ id: t.id, nome: t.nome, ativo: t.ativo !== false, ordem: t.ordem }));
+}
+
 async function carregarSinalizacoes() {
   const { data, error } = await supabaseClient.from('sinalizacoes').select('*').order('criado_em', { ascending: false });
   if (error) { console.error('Erro ao carregar sinalizações:', error.message); return; }
@@ -79,7 +100,7 @@ async function carregarSinalizacoes() {
 
 async function carregarAvaliacoesQualidade() {
   const { data, error } = await supabaseClient.from('avaliacoes_qualidade').select('*').order('criado_em', { ascending: false });
-  if (error) { console.error('Erro ao carregar avaliações de qualidade:', error.message); return; }
+  if (error) { registrarSeMigracaoPendente(error, 'avaliacoes_qualidade (migração 0016)'); console.error('Erro ao carregar avaliações de qualidade:', error.message); return; }
   state.avaliacoesQualidade = (data || []).map(a => ({
     id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
     periodo: a.periodo, clarezaComunicacao: a.clareza_comunicacao, cordialidade: a.cordialidade,
@@ -92,7 +113,7 @@ async function carregarAvaliacoesQualidade() {
 
 async function carregarAtendimentosReferencia() {
   const { data, error } = await supabaseClient.from('atendimentos_referencia').select('*').order('criado_em', { ascending: false });
-  if (error) { console.error('Erro ao carregar atendimentos de referência:', error.message); return; }
+  if (error) { registrarSeMigracaoPendente(error, 'atendimentos_referencia (migração 0016)'); console.error('Erro ao carregar atendimentos de referência:', error.message); return; }
   state.atendimentosReferencia = (data || []).map(r => ({
     id: r.id, colaboradorId: r.colaborador_id, colaborador: r.colaborador_nome || '', setor: r.setor,
     titulo: r.titulo, descricao: r.descricao || '', registradoPorId: r.registrado_por, data: r.criado_em,
@@ -102,7 +123,7 @@ async function carregarAtendimentosReferencia() {
 
 async function carregarAtendimentosChat() {
   const { data, error } = await supabaseClient.from('atendimentos_chat').select('*').order('iniciado_em', { ascending: false });
-  if (error) { console.error('Erro ao carregar atendimentos (chat):', error.message); return; }
+  if (error) { registrarSeMigracaoPendente(error, 'atendimentos_chat (migração 0017)'); console.error('Erro ao carregar atendimentos (chat):', error.message); return; }
   state.atendimentosChat = (data || []).map(a => ({
     id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
     cliente: a.cliente || '', linkChatguru: a.link_chatguru || '', status: a.status, iniciadoEm: a.iniciado_em,
@@ -116,7 +137,7 @@ async function carregarAtendimentosChat() {
    js/eficiencia-dashboard.js (renderAtendimentoChatDetalhe). */
 async function carregarAtendimentoChatEventos() {
   const { data, error } = await supabaseClient.from('atendimento_chat_eventos').select('*').order('ocorrido_em');
-  if (error) { console.error('Erro ao carregar linha do tempo dos atendimentos:', error.message); return; }
+  if (error) { registrarSeMigracaoPendente(error, 'atendimento_chat_eventos (migração 0020)'); console.error('Erro ao carregar linha do tempo dos atendimentos:', error.message); return; }
   state.atendimentoChatEventos = (data || []).map(e => ({
     id: e.id, atendimentoId: e.atendimento_id, evento: e.evento, ocorridoEm: e.ocorrido_em, autorId: e.autor_id,
   }));
@@ -130,7 +151,7 @@ async function carregarSetores() {
 
 async function carregarEquipes() {
   const { data, error } = await supabaseClient.from('equipes').select('*').order('nome');
-  if (error) { console.error('Erro ao carregar equipes:', error.message); return; }
+  if (error) { registrarSeMigracaoPendente(error, 'equipes (migração 0018)'); console.error('Erro ao carregar equipes:', error.message); return; }
   state.equipes = (data || []).map(eq => ({
     id: eq.id, nome: eq.nome, setor: eq.setor || '', ordem: eq.ordem, ativa: eq.ativa !== false, criadoEm: eq.criado_em,
   }));
@@ -338,6 +359,7 @@ async function sincronizarDadosSupabase() {
     carregarPermissoesEGestores(), carregarMetas(), carregarCursos(), carregarAniversariantes(),
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
     carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarAtendimentoChatEventos(), carregarEquipes(),
+    carregarTiposErroSinalizacao(),
     carregarComputadores(), carregarManutencoesComputador(), carregarHistoricoComputador(), carregarReservaAtribuicoes(),
   ]);
   await carregarProgressoCursos();

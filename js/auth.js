@@ -239,6 +239,7 @@ async function logout() {
   if (supabaseClient) await supabaseClient.auth.signOut();
   if (chatRealtimeChannel) { supabaseClient.removeChannel(chatRealtimeChannel); chatRealtimeChannel = null; }
   if (notificacoesRealtimeChannel) { supabaseClient.removeChannel(notificacoesRealtimeChannel); notificacoesRealtimeChannel = null; }
+  if (eficienciaRealtimeChannel) { supabaseClient.removeChannel(eficienciaRealtimeChannel); eficienciaRealtimeChannel = null; }
   state.loggedIn = false;
   state.currentUser = null;
   state.adminOpen = false;

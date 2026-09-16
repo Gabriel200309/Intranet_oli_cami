@@ -61,6 +61,8 @@ const state = {
   sinalizacoes: JSON.parse(JSON.stringify(SINALIZACOES_SEED)),
   novaSinalizacao: false,
   classificacoes: JSON.parse(JSON.stringify(CLASSIFICACOES_SEED)),
+  tiposErroSinalizacao: [], // { id, nome, ativo, ordem } — cadastrados pelo administrador (Administração > Tipos de Erro); vazio = usa a lista fixa local (TIPOS_ERRO_SINALIZACAO) como fallback
+  migracoesPendentes: [], // nomes de tabelas cuja migração (ver supabase/migrations) ainda não foi aplicada no banco — populado por data-sync.js quando uma consulta retorna "relation does not exist"; usado para avisar o administrador em vez de mostrar telas silenciosamente vazias
 
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
   avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data, atendimentoChatId }
@@ -80,6 +82,7 @@ const state = {
   reatribuirAtendimentoChatAberto: false,
   enviarAlertaAtendimentoChatAberto: false, // formulário de horário do alerta (nunca grava "agora" sem confirmar)
   registrarRespostaAtendimentoChatAberto: false, // formulário de horário da resposta (idem)
+  encerrarAtendimentoChatAberto: false, // formulário de horário do encerramento (idem — editável, pode ser anterior ao momento do cadastro)
   editarLinkChatguruAberto: false,
   avaliarAtendimentoChatId: null, // id do atendimento para o qual o formulário de avaliação está aberto (a partir do detalhe)
   vincularReferenciaAtendimentoChatId: null, // id do atendimento para o qual o formulário de referência/bônus está aberto (a partir do detalhe)

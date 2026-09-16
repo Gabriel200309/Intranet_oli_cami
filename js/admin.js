@@ -19,6 +19,7 @@ const ADMIN_TABS = [
   { key: 'links', label: 'Links de sistemas', icon: 'fa-link' },
   { key: 'ferramentas', label: 'Ferramentas', icon: 'fa-screwdriver-wrench' },
   { key: 'classificacoes', label: 'Classificações', icon: 'fa-flag' },
+  { key: 'tiposErro', label: 'Tipos de Erro', icon: 'fa-triangle-exclamation' },
   { key: 'permissoes', label: 'Permissões de acesso', icon: 'fa-user-shield' },
   { key: 'gruposChat', label: 'Grupos de chat', icon: 'fa-users' },
   { key: 'cursos', label: 'Cursos e Oficinas', icon: 'fa-graduation-cap' },
@@ -30,7 +31,7 @@ const ADMIN_TITLES = {
   acessoRapido: 'Links do Acesso Rápido', setores: 'Setores do escritório', equipes: 'Equipes de trabalho', funcionarios: 'Cadastro de funcionários', audiencias: 'Pauta de audiências',
   avisos: 'Avisos importantes', metas: 'Gestão de Metas — Geral, Setor e Carteira', funcionarioMes: 'Funcionário do mês',
   aniversariantes: 'Aniversariantes', links: 'Links dos sistemas da empresa', ferramentas: 'Ferramentas acessadas pela equipe',
-  classificacoes: 'Classificações de Sinalização', permissoes: 'Permissões e Gestores por Setor', gruposChat: 'Grupos de chat internos',
+  classificacoes: 'Classificações de Sinalização', tiposErro: 'Tipos de Erro (Alertas)', permissoes: 'Permissões e Gestores por Setor', gruposChat: 'Grupos de chat internos',
   cursos: 'Cursos e Oficinas — conteúdo de treinamento', parabens: 'Relatório de Parabéns de Aniversário',
   manutencaoIA: 'Central de Manutenção Inteligente (IA)', conexaoSupabase: 'Conexão com o Supabase',
 };
@@ -74,6 +75,7 @@ function renderAdminTabContent() {
   if (tab === 'links') return renderAdminLinks(c);
   if (tab === 'ferramentas') return renderAdminFerramentas(c);
   if (tab === 'classificacoes') return renderAdminClassificacoes(c);
+  if (tab === 'tiposErro') return renderAdminTiposErro(c);
   if (tab === 'permissoes') return renderAdminPermissoes(c);
   if (tab === 'gruposChat') return renderAdminGruposChat(c);
   if (tab === 'cursos') return renderAdminCursos(c);
@@ -1047,6 +1049,92 @@ async function removeClassificacao(id) {
     if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
   }
   state.classificacoes = state.classificacoes.filter(x=>x.id!==id);
+  renderAdminTabContent();
+}
+
+/* --- TIPOS DE ERRO (classificação de alertas/sinalizações) ---
+   Migração 0022. Catálogo administrável usado no seletor "Tipo de erro" ao
+   registrar uma sinalização e no filtro do Painel de Eficiência, Qualidade
+   e Alertas (ver tiposErroDisponiveis() em js/data.js). Não é FK de
+   sinalizacoes.tipo_erro (texto livre por linha) — renomear/desativar/
+   excluir um tipo aqui nunca altera nem invalida uma sinalização já
+   registrada com aquele texto. */
+function renderAdminTiposErro(c) {
+  const ed = state.editing.tipoErro;
+  const t = ed ? state.tiposErroSinalizacao.find(x => x.id === ed) : null;
+  const lista = state.tiposErroSinalizacao.slice().sort((a, b) => {
+    const aTemOrdem = a.ordem !== null && a.ordem !== undefined;
+    const bTemOrdem = b.ordem !== null && b.ordem !== undefined;
+    if (aTemOrdem && bTemOrdem && a.ordem !== b.ordem) return a.ordem - b.ordem;
+    if (aTemOrdem && !bTemOrdem) return -1;
+    if (!aTemOrdem && bTemOrdem) return 1;
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+  c.innerHTML = `
+    <div class="admin-list-meta" style="margin-bottom:14px; max-width:680px;">Classificação usada para agrupar "tipos de erros mais frequentes" e a recorrência no Painel de Eficiência, Qualidade e Alertas. Tipos inativos somem do seletor ao registrar uma nova sinalização, mas continuam aparecendo normalmente nos alertas antigos que já usam aquele texto.</div>
+    <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr;">
+      <div class="form-field"><label>Nome do tipo de erro</label><input id="te-nome" value="${t?esc(t.nome):''}" placeholder="Ex: Falha operacional"></div>
+      <div class="form-field"><label>Ordem <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="te-ordem" type="number" min="1" value="${t&&t.ordem!=null?t.ordem:''}"></div>
+      <div class="form-field"><label>Status</label>
+        <select id="te-ativo"><option value="1" ${!t||t.ativo?'selected':''}>Ativo</option><option value="0" ${t&&!t.ativo?'selected':''}>Inativo</option></select>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="admin-add-btn" onclick="submitTipoErro()"><i class="fa-solid fa-plus"></i> ${ed?'Salvar alterações':'Adicionar tipo de erro'}</button>
+      ${ed ? `<button class="admin-cancel-btn" onclick="cancelEdit('tipoErro')">Cancelar</button>` : ''}
+    </div>
+    <div class="admin-section-label">Tipos de erro cadastrados (${lista.length})</div>
+    ${lista.length ? lista.map(x => `
+      <div class="admin-list-item">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <i class="fa-solid fa-triangle-exclamation" style="color:${x.ativo?'var(--brass)':'var(--text-3)'};"></i>
+          <div style="font-size:13px; font-weight:700; ${x.ativo?'':'color:var(--text-3);'}">${esc(x.nome)}</div>
+          ${!x.ativo ? `<span class="status-pill" style="background:var(--surface-2);">Inativo</span>` : ''}
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="admin-edit-btn" onclick="editTipoErro('${x.id}')"><i class="fa-solid fa-pen" style="font-size:12px;"></i></button>
+          <button class="admin-del-btn" onclick="removeTipoErro('${x.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+        </div>
+      </div>
+    `).join('') : `<div style="font-size:12.5px; color:var(--text-3); padding:12px 0;">Nenhum tipo de erro cadastrado ainda${supabaseClient ? ' — aplique a migração 0022 no banco se esta lista deveria vir populada.' : '.'}</div>`}
+  `;
+}
+async function submitTipoErro() {
+  const nome = val('te-nome').trim();
+  const ordemBruta = val('te-ordem');
+  const ordem = ordemBruta === '' ? null : Number(ordemBruta);
+  const ativo = val('te-ativo') === '1';
+  if (!nome) { showToast('Informe o nome do tipo de erro.'); return; }
+  const ed = state.editing.tipoErro;
+  if (!supabaseClient) {
+    if (ed) { const i = state.tiposErroSinalizacao.findIndex(x=>x.id===ed); state.tiposErroSinalizacao[i] = { ...state.tiposErroSinalizacao[i], nome, ordem, ativo }; showToast('Tipo de erro atualizado!'); }
+    else { state.tiposErroSinalizacao.push({ id: uid('te'), nome, ordem, ativo }); showToast('Tipo de erro adicionado!'); }
+    state.editing.tipoErro = null;
+    renderAdminTabContent();
+    return;
+  }
+  const payload = { nome, ordem, ativo };
+  const { error } = ed
+    ? await supabaseClient.from('tipos_erro_sinalizacao').update(payload).eq('id', ed)
+    : await supabaseClient.from('tipos_erro_sinalizacao').insert(payload);
+  if (error) {
+    showToast(tabelaAusente(error, 'tipos_erro_sinalizacao')
+      ? 'A tabela de Tipos de Erro ainda não existe no banco — peça ao administrador do banco para aplicar a migração 0022.'
+      : 'Não foi possível salvar: ' + error.message);
+    return;
+  }
+  showToast(ed ? 'Tipo de erro atualizado!' : 'Tipo de erro adicionado!');
+  state.editing.tipoErro = null;
+  await carregarTiposErroSinalizacao();
+  renderAdminTabContent();
+}
+function editTipoErro(id) { state.editing.tipoErro = id; renderAdminTabContent(); }
+async function removeTipoErro(id) {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('tipos_erro_sinalizacao').delete().eq('id', id);
+    if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+  }
+  state.tiposErroSinalizacao = state.tiposErroSinalizacao.filter(x=>x.id!==id);
   renderAdminTabContent();
 }
 

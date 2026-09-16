@@ -18,6 +18,30 @@
    quem tem a permissão "ver sinalizações de todas" (RH/Diretoria por
    padrão) ou gestor de algum setor — nenhuma permissão nova foi criada. */
 
+/* ================= ATUALIZAÇÃO EM TEMPO REAL =================
+   Mantém os indicadores atualizados quando outro gestor/admin altera um
+   alerta, atendimento, linha do tempo ou avaliação em outra sessão — sem
+   precisar recarregar a página (mesmo padrão de assinarNotificacoesRealtime()
+   em js/data-sync.js e assinarMensagensRealtime() em js/chat.js). Assinatura
+   única por sessão (idempotente via eficienciaRealtimeChannel): ativada na
+   primeira vez que o painel é aberto, permanece ativa até o logout. */
+let eficienciaRealtimeChannel = null;
+function assinarEficienciaRealtime() {
+  if (!supabaseClient || eficienciaRealtimeChannel) return;
+  const aoMudar = (carregar) => async () => {
+    await carregar();
+    if (state.currentView === 'eficiencia') renderEficienciaView();
+  };
+  eficienciaRealtimeChannel = supabaseClient
+    .channel('eficiencia-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sinalizacoes' }, aoMudar(carregarSinalizacoes))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'atendimentos_chat' }, aoMudar(carregarAtendimentosChat))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'atendimento_chat_eventos' }, aoMudar(carregarAtendimentoChatEventos))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'avaliacoes_qualidade' }, aoMudar(carregarAvaliacoesQualidade))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'atendimentos_referencia' }, aoMudar(carregarAtendimentosReferencia))
+    .subscribe();
+}
+
 const CRITERIOS_QUALIDADE = [
   { key: 'clarezaComunicacao', campo: 'clareza_comunicacao', label: 'Clareza da comunicação' },
   { key: 'cordialidade', campo: 'cordialidade', label: 'Cordialidade' },
@@ -92,17 +116,43 @@ function mediaAvaliacaoQualidade(a) {
 }
 /* Indicadores de tempo do atendimento individual (seção "Indicadores" do
    detalhe) — null quando faltar algum dos dois horários envolvidos
-   ("Sem dados suficientes" na tela, nunca um cálculo incorreto/negativo). */
+   ("Sem dados suficientes" na tela, nunca um cálculo incorreto/negativo).
+
+   REGRAS DE TEMPO (corrigidas conforme o escopo da revisão de Eficiência,
+   Qualidade e Alertas):
+     Tempo de Alerta     = primeiraRespostaEm - alertaEnviadoEm
+                            (horário em que o líder RECEBEU o alerta até o
+                            horário em que ele RESPONDEU o cliente).
+     Tempo de resposta   = primeiraRespostaEm - iniciadoEm
+                            (mensagem do cliente até a resposta do
+                            colaborador, independente do alerta).
+     Tempo de Resolução  = finalizadoEm - primeiraRespostaEm
+                            (resposta do líder até o atendimento ser
+                            encerrado) — não depende mais de "resolvido_em"
+                            (a pergunta "A demanda foi resolvida?" é uma
+                            informação própria e independente, ver
+                            RESOLUCAO_ATENDIMENTO_INFO). */
 function calcMinutosEntre(isoInicio, isoFim) {
   if (!isoInicio || !isoFim) return null;
   return Math.max(0, Math.round((new Date(isoFim) - new Date(isoInicio)) / 60000));
 }
 function calcIndicadoresAtendimento(a) {
   return {
-    ateAlertaMin: calcMinutosEntre(a.iniciadoEm, a.alertaEnviadoEm), // só para acompanhamento do processo — nunca usado no tempo de resposta
+    tempoAlertaMin: calcMinutosEntre(a.alertaEnviadoEm, a.primeiraRespostaEm), // Tempo de Alerta: alerta recebido pelo líder -> líder respondeu o cliente
     tempoRespostaMin: calcMinutosEntre(a.iniciadoEm, a.primeiraRespostaEm), // mensagem do cliente -> resposta do colaborador, sempre, independente do alerta
-    resolucaoMin: calcMinutosEntre(a.iniciadoEm, a.resolvidoEm), // mensagem do cliente -> resolução (só existe data quando resolucao = "resolvida")
+    tempoResolucaoMin: calcMinutosEntre(a.primeiraRespostaEm, a.finalizadoEm), // Tempo de Resolução: resposta do líder -> atendimento encerrado
   };
+}
+/* Tempo médio (minutos) entre dois campos de data/hora de uma lista de
+   atendimentos — usado nos cards agregados do painel (Tempo de Alerta e
+   Tempo de Resolução médios do período/filtro selecionado). Só entra na
+   média quem já tem os dois horários preenchidos; null = nenhum atendimento
+   com esse dado no período/filtro ("Sem dados suficientes"). */
+function calcTempoMedioMin(lista, campoInicio, campoFim) {
+  const validos = lista.filter(a => a[campoInicio] && a[campoFim]);
+  if (!validos.length) return null;
+  const totalMin = validos.reduce((acc, a) => acc + Math.max(0, (new Date(a[campoFim]) - new Date(a[campoInicio])) / 60000), 0);
+  return Math.round(totalMin / validos.length);
 }
 
 function souGestorDeAlgumSetor() {
@@ -366,7 +416,7 @@ function filtrosEficienciaBar() {
         <div class="form-field"><label>Tipo de erro</label>
           <select onchange="setFiltroEficiencia('tipoErro', this.value)">
             <option value="" ${!f.tipoErro ? 'selected' : ''}>Todos</option>
-            ${TIPOS_ERRO_SINALIZACAO.map(t => `<option value="${esc(t)}" ${f.tipoErro === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+            ${tiposErroDisponiveis().map(t => `<option value="${esc(t)}" ${f.tipoErro === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
           </select>
         </div>
         <div class="form-field"><label>Status</label>
@@ -377,7 +427,10 @@ function filtrosEficienciaBar() {
           </select>
         </div>
       </div>
-      <button class="admin-cancel-btn" style="margin-top:10px;" onclick="limparFiltroEficiencia()"><i class="fa-solid fa-filter-circle-xmark"></i> Limpar filtros</button>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="admin-add-btn" style="margin-top:0;" onclick="renderEficienciaView()"><i class="fa-solid fa-filter"></i> Filtrar</button>
+        <button class="admin-cancel-btn" style="margin-top:0;" onclick="limparFiltroEficiencia()"><i class="fa-solid fa-filter-circle-xmark"></i> Limpar filtros</button>
+      </div>
     </div>
   `;
 }
@@ -433,11 +486,22 @@ async function submitAvaliacaoQualidade() {
     periodo, observacoes, avaliador_id: state.currentUser.id, atendimento_chat_id: atendimentoChatId,
   };
   CRITERIOS_QUALIDADE.forEach(c => { payload[c.campo] = notas[c.key]; });
-  const { error } = await supabaseClient.from('avaliacoes_qualidade').insert(payload);
+  let { error } = await supabaseClient.from('avaliacoes_qualidade').insert(payload);
+  let vinculoNaoSalvo = false;
+  if (error && colunaAusente(error, 'atendimento_chat_id')) {
+    // Campo opcional (migração 0020 ainda não aplicada no banco): registra a
+    // avaliação normalmente mesmo assim, só sem o vínculo ao atendimento —
+    // isso nunca deve travar o registro da avaliação em si.
+    delete payload.atendimento_chat_id;
+    ({ error } = await supabaseClient.from('avaliacoes_qualidade').insert(payload));
+    vinculoNaoSalvo = !error && !!atendimentoChatId;
+  }
   if (error) { showToast('Não foi possível registrar a avaliação: ' + error.message); return; }
   state.novaAvaliacaoQualidade = false;
   state.avaliarAtendimentoChatId = null;
-  showToast('Avaliação de qualidade registrada!');
+  showToast(vinculoNaoSalvo
+    ? 'Avaliação registrada! O vínculo com o atendimento não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0020 no banco.'
+    : 'Avaliação de qualidade registrada!');
   await carregarAvaliacoesQualidade();
   renderEficienciaView();
 }
@@ -486,11 +550,21 @@ async function submitAtendimentoReferencia() {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
     titulo, descricao, registrado_por: state.currentUser.id, atendimento_chat_id: atendimentoChatId,
   };
-  const { error } = await supabaseClient.from('atendimentos_referencia').insert(payload);
+  let { error } = await supabaseClient.from('atendimentos_referencia').insert(payload);
+  let vinculoNaoSalvo = false;
+  if (error && colunaAusente(error, 'atendimento_chat_id')) {
+    // Mesma lógica de tolerância de submitAvaliacaoQualidade: o vínculo é
+    // opcional (migração 0020) e nunca deve travar o registro em si.
+    delete payload.atendimento_chat_id;
+    ({ error } = await supabaseClient.from('atendimentos_referencia').insert(payload));
+    vinculoNaoSalvo = !error && !!atendimentoChatId;
+  }
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novoAtendimentoReferencia = false;
   state.vincularReferenciaAtendimentoChatId = null;
-  showToast('Atendimento de referência registrado!');
+  showToast(vinculoNaoSalvo
+    ? 'Atendimento de referência registrado! O vínculo com o atendimento não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0020 no banco.'
+    : 'Atendimento de referência registrado!');
   await carregarAtendimentosReferencia();
   renderEficienciaView();
 }
@@ -564,6 +638,17 @@ function colunaAusente(error, nomeColuna) {
   if (error.code === '42703' || error.code === 'PGRST204') return true;
   return new RegExp(nomeColuna, 'i').test(error.message || '') && /column|coluna/i.test(error.message || '');
 }
+/* Mesma ideia de colunaAusente(), mas para TABELA inteira ainda não criada
+   (migração ainda não aplicada no banco) — código 42P01 do Postgres
+   ("relation does not exist") ou PGRST205 do PostgREST ("not found in the
+   schema cache"). Usado nas telas/ações que dependem de tabelas novas
+   (equipes, tipos_erro_sinalizacao, atendimento_chat_eventos etc.) para
+   mostrar uma orientação clara em vez de um erro cru do banco. */
+function tabelaAusente(error, nomeTabela) {
+  if (!error) return false;
+  if (error.code === '42P01' || error.code === 'PGRST205') return true;
+  return new RegExp(nomeTabela, 'i').test(error.message || '') && /relation|table|schema cache/i.test(error.message || '');
+}
 /* Enviar alerta e registrar resposta SEMPRE perguntam o horário em que o
    evento realmente aconteceu (pré-preenchido com "agora", mas editável) —
    nunca gravam o horário do clique automaticamente, para não registrar um
@@ -575,6 +660,7 @@ function colunaAusente(error, nomeColuna) {
 function fecharSubFormsAtendimentoChat() {
   state.enviarAlertaAtendimentoChatAberto = false;
   state.registrarRespostaAtendimentoChatAberto = false;
+  state.encerrarAtendimentoChatAberto = false;
   state.reatribuirAtendimentoChatAberto = false;
   state.editarLinkChatguruAberto = false;
 }
@@ -590,10 +676,17 @@ function toggleRegistrarRespostaAtendimentoChat() {
   state.registrarRespostaAtendimentoChatAberto = abrir;
   renderEficienciaView();
 }
+function toggleEncerrarAtendimentoChat() {
+  const abrir = !state.encerrarAtendimentoChatAberto;
+  fecharSubFormsAtendimentoChat();
+  state.encerrarAtendimentoChatAberto = abrir;
+  renderEficienciaView();
+}
 /* Atalhos da listagem: abrem o atendimento já com o formulário de
    horário aberto, em vez de gravar "agora" direto no clique. */
 function abrirAtendimentoParaAlerta(id) { state.atendimentoChatAtivoId = id; fecharSubFormsAtendimentoChat(); state.enviarAlertaAtendimentoChatAberto = true; renderEficienciaView(); }
 function abrirAtendimentoParaResposta(id) { state.atendimentoChatAtivoId = id; fecharSubFormsAtendimentoChat(); state.registrarRespostaAtendimentoChatAberto = true; renderEficienciaView(); }
+function abrirAtendimentoParaEncerrar(id) { state.atendimentoChatAtivoId = id; fecharSubFormsAtendimentoChat(); state.encerrarAtendimentoChatAberto = true; renderEficienciaView(); }
 async function confirmarAlertaAtendimentoChat(id) {
   const quando = val('alerta-quando');
   if (!quando) { showToast('Informe a data e hora em que o alerta foi enviado.'); return; }
@@ -667,19 +760,40 @@ async function definirResolucaoAtendimento(id, valor) {
     return;
   }
   const { error } = await supabaseClient.from('atendimentos_chat').update({ resolucao: valor }).eq('id', id);
-  if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
+  if (error) {
+    showToast(colunaAusente(error, 'resolucao')
+      ? 'Não foi possível salvar: a coluna "resolucao" ainda não existe no banco — peça ao administrador do banco para aplicar a migração 0020.'
+      : 'Não foi possível registrar: ' + error.message);
+    return;
+  }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
-async function finalizarAtendimentoChat(id) {
-  const agora = new Date().toISOString();
+/* Encerrar SEMPRE pergunta o horário em que o atendimento foi de fato
+   encerrado (pré-preenchido com "agora", mas editável) — nunca grava o
+   horário do clique automaticamente. Quem registra pode informar um
+   horário anterior ao momento do cadastro (ex.: encerrado às 10:30,
+   lançado no sistema às 11:00) — mesmo padrão já usado para o alerta e a
+   resposta. */
+async function confirmarEncerramentoAtendimentoChat(id) {
+  const quando = val('encerramento-quando');
+  if (!quando) { showToast('Informe a data e hora em que o atendimento foi encerrado.'); return; }
+  const quandoIso = new Date(quando).toISOString();
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.iniciadoEm && new Date(quandoIso) < new Date(a.iniciadoEm)) { showToast('O horário do encerramento não pode ser anterior ao início do atendimento.'); return; }
+  if (a && a.primeiraRespostaEm && new Date(quandoIso) < new Date(a.primeiraRespostaEm)) { showToast('O horário do encerramento não pode ser anterior à resposta do líder.'); return; }
+  state.encerrarAtendimentoChatAberto = false;
+  await finalizarAtendimentoChat(id, quandoIso);
+}
+async function finalizarAtendimentoChat(id, quandoIso) {
+  const quando = quandoIso || new Date().toISOString();
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
-    if (a) { a.finalizadoEm = agora; a.status = 'finalizado'; registrarEventoAtendimentoLocal(id, 'Atendimento encerrado', agora); }
+    if (a) { a.finalizadoEm = quando; a.status = 'finalizado'; registrarEventoAtendimentoLocal(id, 'Atendimento encerrado', quando); }
     renderEficienciaView();
     return;
   }
-  const { error } = await supabaseClient.from('atendimentos_chat').update({ finalizado_em: agora }).eq('id', id);
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ finalizado_em: quando }).eq('id', id);
   if (error) { showToast('Não foi possível finalizar: ' + error.message); return; }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
@@ -885,7 +999,7 @@ function renderAtendimentoChatDetalhe() {
         <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
           ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleEnviarAlertaAtendimentoChat()"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
           ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleRegistrarRespostaAtendimentoChat()"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
-          ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
+          ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleEncerrarAtendimentoChat()"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
           <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
         </div>
         ${state.enviarAlertaAtendimentoChatAberto ? `
@@ -900,6 +1014,13 @@ function renderAtendimentoChatDetalhe() {
             <div class="form-field"><label>Data e hora em que o colaborador respondeu</label><input id="resposta-quando" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
             <button class="admin-add-btn" onclick="confirmarRespostaAtendimentoChat('${a.id}')"><i class="fa-solid fa-check"></i> Confirmar</button>
             <button class="admin-cancel-btn" onclick="toggleRegistrarRespostaAtendimentoChat()">Cancelar</button>
+          </div>
+        ` : ''}
+        ${state.encerrarAtendimentoChatAberto ? `
+          <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="form-field"><label>Data e hora em que o atendimento foi encerrado</label><input id="encerramento-quando" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
+            <button class="admin-add-btn" onclick="confirmarEncerramentoAtendimentoChat('${a.id}')"><i class="fa-solid fa-check"></i> Confirmar</button>
+            <button class="admin-cancel-btn" onclick="toggleEncerrarAtendimentoChat()">Cancelar</button>
           </div>
         ` : ''}
         ${state.reatribuirAtendimentoChatAberto ? `
@@ -929,26 +1050,22 @@ function renderAtendimentoChatDetalhe() {
 
     <div class="section-title">Indicadores de tempo</div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:24px;">
-      ${metricCard('Tempo até o alerta', ind.ateAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.ateAlertaMin), 'Só para acompanhamento do processo — não entra no tempo de resposta.')}
+      ${metricCard('Tempo de Alerta', ind.tempoAlertaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.tempoAlertaMin), 'Do alerta recebido pelo líder até ele responder o cliente.')}
       ${metricCard('Tempo de resposta', ind.tempoRespostaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.tempoRespostaMin), 'Mensagem do cliente até a resposta do colaborador.')}
-      ${metricCard('Tempo de resolução', ind.resolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.resolucaoMin), 'Mensagem do cliente até a demanda ser marcada como resolvida.')}
+      ${metricCard('Tempo de Resolução', ind.tempoResolucaoMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(ind.tempoResolucaoMin), 'Da resposta do líder até o atendimento ser encerrado.')}
+      ${metricCard('Resolvido / Não Resolvido', RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].emoji + ' ' + RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].label)}
+      ${metricCard('Avaliação', avaliacoes.length ? (Math.round((avaliacoes.reduce((acc,av)=>acc+mediaAvaliacaoQualidade(av),0)/avaliacoes.length)*10)/10).toFixed(1) + ' / 10' : 'Sem dados suficientes')}
     </div>
 
     <div class="section-title">A demanda foi resolvida?</div>
     <div class="card" style="padding:20px; margin-bottom:24px;">
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:${a.resolucao === 'resolvida' ? '12px' : '0'};">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
         ${['resolvida', 'nao_resolvida', 'pendente'].map(v => {
           const info = RESOLUCAO_ATENDIMENTO_INFO[v];
           const ativo = a.resolucao === v;
           return `<button class="status-pill" style="font-size:12.5px; padding:8px 14px; border:1px solid ${ativo ? info.cor : 'var(--border)'}; background:${ativo ? info.cor + '22' : 'transparent'}; color:${ativo ? info.cor : 'var(--text-2)'}; ${podeGerenciar ? 'cursor:pointer;' : 'cursor:default; opacity:.6;'}" ${podeGerenciar ? `onclick="definirResolucaoAtendimento('${a.id}','${v}')"` : 'disabled'}>${info.emoji} ${esc(info.label)}</button>`;
         }).join('')}
       </div>
-      ${a.resolucao === 'resolvida' && a.resolvidoEm ? `
-        <div style="font-size:12.5px; color:var(--text-2);">
-          Resolvida às <strong>${esc(isoParaHoraLocal(a.resolvidoEm))}</strong>
-          ${ind.resolucaoMin !== null ? ` · Tempo total de resolução: <strong>${formatarDuracaoMin(ind.resolucaoMin)}</strong>` : ''}
-        </div>
-      ` : ''}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
@@ -984,6 +1101,7 @@ function renderEficienciaView() {
     `;
     return;
   }
+  assinarEficienciaRealtime();
   if (state.atendimentoChatAtivoId) { renderAtendimentoChatDetalhe(); return; }
   garantirFiltroEficienciaPadrao();
   const ind = calcIndicadoresAlertas();
@@ -1001,11 +1119,29 @@ function renderEficienciaView() {
     ? 'Nenhum atendimento com primeira resposta registrada no período/filtro selecionado.'
     : `Média de ${atendimentosChat.filter(a => a.primeiraRespostaEm).length} atendimento(s) com resposta registrada`;
 
+  // Tempo de Alerta / Tempo de Resolução médios do período/filtro selecionado
+  // (mesmas fórmulas do indicador individual — ver calcIndicadoresAtendimento).
+  const tempoAlertaMedioMin = calcTempoMedioMin(atendimentosChat, 'alertaEnviadoEm', 'primeiraRespostaEm');
+  const tempoAlertaMedioValor = tempoAlertaMedioMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(tempoAlertaMedioMin);
+  const tempoResolucaoMedioMin = calcTempoMedioMin(atendimentosChat, 'primeiraRespostaEm', 'finalizadoEm');
+  const tempoResolucaoMedioValor = tempoResolucaoMedioMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(tempoResolucaoMedioMin);
+  const resolvidosQtd = atendimentosChat.filter(a => a.resolucao === 'resolvida').length;
+  const naoResolvidosQtd = atendimentosChat.filter(a => a.resolucao === 'nao_resolvida').length;
+  const avaliacaoMediaGeral = avaliacoes.length
+    ? Math.round((avaliacoes.reduce((acc, a) => acc + mediaAvaliacaoQualidade(a), 0) / avaliacoes.length) * 10) / 10
+    : null;
+
   document.getElementById('content').innerHTML = `
     <div class="section-title" style="margin-bottom:6px;">Eficiência, Qualidade e Alertas</div>
     <div style="font-size:12px; color:var(--text-2); max-width:820px; margin-bottom:16px; line-height:1.5;">
       Acompanhamento quantitativo e qualitativo do desempenho das equipes, a partir dos dados já registrados no portal (sinalizações de colaboradores) e das avaliações de qualidade/atendimentos de referência registrados aqui.
     </div>
+
+    ${isAdmin() && state.migracoesPendentes.length ? `
+      <div class="login-error" style="margin-bottom:16px; max-width:900px;">
+        <i class="fa-solid fa-database"></i> Algumas tabelas deste painel ainda não existem no banco conectado — peça ao administrador do banco para aplicar as migrações pendentes (pasta <span class="mono">supabase/migrations</span>): ${state.migracoesPendentes.map(m => `<strong>${esc(m)}</strong>`).join(', ')}. Enquanto isso, os dados dessas tabelas aparecem vazios (nada foi perdido — é só a tabela que ainda não existe no seu projeto Supabase).
+      </div>
+    ` : ''}
 
     ${filtrosEficienciaBar()}
 
@@ -1059,7 +1195,12 @@ function renderEficienciaView() {
 
     <div class="section-title">Eficiência Operacional</div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:14px; margin-bottom:16px;">
+      ${metricCard('Tempo de Alerta', tempoAlertaMedioValor, 'Média: do alerta recebido pelo líder até ele responder o cliente.')}
+      ${metricCard('Tempo de Resolução', tempoResolucaoMedioValor, 'Média: da resposta do líder até o atendimento ser encerrado.')}
       ${metricCard('Tempo de primeira resposta', tempoPrimeiraRespostaValor, tempoPrimeiraRespostaSub)}
+      ${metricCard('Resolvido', resolvidosQtd)}
+      ${metricCard('Não Resolvido', naoResolvidosQtd)}
+      ${metricCard('Avaliação', avaliacaoMediaGeral === null ? 'Sem dados suficientes' : avaliacaoMediaGeral.toFixed(1) + ' / 10')}
       ${metricCard('Chats aguardando', chatsAguardandoQtd)}
       ${metricCard('Prazos cumpridos', cumprimentoPrazoValor, cumprimentoPrazoSub)}
       ${metricCard('Pendências sem retorno', ind.pendentes, 'Alertas com status "aberta" no período/filtro selecionado.')}
@@ -1109,7 +1250,7 @@ function renderEficienciaView() {
           <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
             ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="abrirAtendimentoParaAlerta('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
             ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta" onclick="abrirAtendimentoParaResposta('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
-            ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="finalizarAtendimentoChat('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
+            ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="abrirAtendimentoParaEncerrar('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
             <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
           </div>` : ''}
         </div>
