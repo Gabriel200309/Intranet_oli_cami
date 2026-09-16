@@ -102,7 +102,7 @@ function renderSinalizacoesView() {
           <div class="form-field"><label>Tipo de erro <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
             <select id="sn-tipo-erro">
               <option value="">Não classificar</option>
-              ${TIPOS_ERRO_SINALIZACAO.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+              ${tiposErroDisponiveis().map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
             </select>
           </div>
           <div class="form-field"><label>Prazo para resolver <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
