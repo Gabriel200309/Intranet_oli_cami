@@ -67,7 +67,7 @@ const state = {
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
   avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data, atendimentoChatId }
   atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data, atendimentoChatId }
-  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, cliente, linkChatguru, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolucao, resolvidoEm, finalizadoEm, registradoPorId, data }
+  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, equipeId, equipe, cliente, linkChatguru, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolucao, resolvidoEm, finalizadoEm, registradoPorId, data }
   atendimentoChatEventos: [], // { id, atendimentoId, evento, ocorridoEm, autorId } — linha do tempo (histórico append-only) de cada atendimento
   novaAvaliacaoQualidade: false,
   novoAtendimentoReferencia: false,

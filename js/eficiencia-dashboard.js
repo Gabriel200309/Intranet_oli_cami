@@ -229,10 +229,26 @@ function equipeIdDoColaborador(colaboradorId) {
   const emp = state.employees.find(e => e.id === colaboradorId);
   return (emp && emp.equipe_id) || null;
 }
-function passaFiltroEquipe(colaboradorId) {
+/* Equipe "efetiva" de um atendimento: a que foi escolhida explicitamente no
+   cadastro (a.equipeId — migração 0023), com fallback para a equipe ATUAL
+   do colaborador quando o atendimento é antigo (cadastrado antes da
+   migração 0023, sem equipe própria gravada). */
+function equipeIdEfetivaDoAtendimento(a) {
+  return a.equipeId || equipeIdDoColaborador(a.colaboradorId);
+}
+/* Nome de exibição da equipe do atendimento: o nome gravado no cadastro
+   (a.equipe), com fallback para o nome ATUAL da equipe efetiva (derivada
+   do colaborador, em atendimentos antigos sem equipe própria). */
+function nomeEquipeDoAtendimento(a) {
+  if (a.equipe) return a.equipe;
+  const eqId = equipeIdEfetivaDoAtendimento(a);
+  const eq = eqId ? state.equipes.find(e => e.id === eqId) : null;
+  return eq ? eq.nome : '';
+}
+function passaFiltroEquipe(colaboradorId, equipeIdExplicito) {
   const f = state.filtroEficiencia;
   if (!f.equipeId) return true;
-  const eqId = equipeIdDoColaborador(colaboradorId);
+  const eqId = equipeIdExplicito !== undefined ? equipeIdExplicito : equipeIdDoColaborador(colaboradorId);
   if (f.equipeId === '__sem_equipe__') return !eqId;
   return eqId === f.equipeId;
 }
@@ -279,7 +295,7 @@ function atendimentosChatFiltrados() {
   return state.atendimentosChat.filter(a =>
     eficienciaDataDentroPeriodo(a.iniciadoEm) &&
     (!f.setor || a.setor === f.setor) &&
-    passaFiltroEquipe(a.colaboradorId) &&
+    passaFiltroEquipe(a.colaboradorId, equipeIdEfetivaDoAtendimento(a)) &&
     (!f.colaboradorId || a.colaboradorId === f.colaboradorId)
   );
 }
@@ -588,16 +604,28 @@ function toggleNovoAtendimentoChat() { state.novoAtendimentoChat = !state.novoAt
    local do navegador (o value desses inputs é sempre "naive", sem fuso).
    Quem registra pode editar livremente antes de confirmar. */
 function agoraParaDatetimeLocal() { return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+/* Ao trocar o colaborador no cadastro, sugere a equipe ATUAL dele no
+   seletor de equipe (continua editável — quem registra pode escolher outra
+   equipe, ex.: colaborador ajudando outro time naquele atendimento). */
+function onAtColaboradorChange() {
+  const sel = document.getElementById('at-equipe');
+  if (!sel) return;
+  const eqId = equipeIdDoColaborador(val('at-colaborador')) || '';
+  if ([...sel.options].some(o => o.value === eqId)) sel.value = eqId;
+}
 async function submitAtendimentoChat() {
   if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos.'); return; }
   const colaboradorId = val('at-colaborador'), cliente = val('at-cliente'), inicioBruto = val('at-inicio');
   const linkChatguru = val('at-link-chatguru').trim();
+  const equipeId = val('at-equipe');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
+  const equipeSelecionada = equipeId ? state.equipes.find(eq => eq.id === equipeId) : null;
   const iniciadoEm = (inicioBruto ? new Date(inicioBruto) : new Date()).toISOString();
   if (!supabaseClient) {
     const novo = {
       id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
+      equipeId: equipeId || null, equipe: equipeSelecionada ? equipeSelecionada.nome : '',
       cliente, linkChatguru, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
       resolucao: 'pendente', resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
     };
@@ -610,10 +638,19 @@ async function submitAtendimentoChat() {
   }
   const payload = {
     colaborador_id: colaboradorId, colaborador_nome: colaboradorEmp.nome, setor: colaboradorEmp.setor,
+    equipe_id: equipeId || null, equipe_nome: equipeSelecionada ? equipeSelecionada.nome : null,
     cliente: cliente || null, link_chatguru: linkChatguru || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
   };
   let { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
-  let linkNaoSalvo = false;
+  let linkNaoSalvo = false, equipeNaoSalva = false;
+  if (error && (colunaAusente(error, 'equipe_id') || colunaAusente(error, 'equipe_nome'))) {
+    // Campos opcionais (migração 0023 ainda não aplicada no banco): registra
+    // o atendimento normalmente mesmo assim, só sem o vínculo de equipe —
+    // nunca deve travar o cadastro do atendimento em si.
+    delete payload.equipe_id; delete payload.equipe_nome;
+    ({ error } = await supabaseClient.from('atendimentos_chat').insert(payload));
+    equipeNaoSalva = !error && !!equipeId;
+  }
   if (error && colunaAusente(error, 'link_chatguru')) {
     // Campo opcional (migração 0021 ainda não aplicada no banco): registra o
     // atendimento normalmente mesmo assim, só sem o link — o link do
@@ -624,9 +661,11 @@ async function submitAtendimentoChat() {
   }
   if (error) { showToast('Não foi possível registrar: ' + error.message); return; }
   state.novoAtendimentoChat = false;
-  showToast(linkNaoSalvo
-    ? 'Atendimento registrado! O link do ChatGuru não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0021 no banco.'
-    : 'Atendimento registrado!');
+  showToast([
+    'Atendimento registrado!',
+    equipeNaoSalva ? 'O vínculo com a equipe não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0023 no banco.' : '',
+    linkNaoSalvo ? 'O link do ChatGuru não pôde ser salvo ainda — peça ao administrador para aplicar a migração 0021 no banco.' : '',
+  ].filter(Boolean).join(' '));
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
@@ -980,6 +1019,7 @@ function renderAtendimentoChatDetalhe() {
       <div style="margin-top:8px;"><span class="status-pill" style="background:${statusInfo.cor}22; color:${statusInfo.cor};">${esc(statusInfo.label)}</span></div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-top:18px; font-size:12.5px; color:var(--text-2); line-height:1.8;">
         <div><strong>Colaborador:</strong> ${esc(a.colaborador || '—')}</div>
+        <div><strong>Equipe:</strong> ${esc(nomeEquipeDoAtendimento(a) || '—')}</div>
         <div><strong>Setor:</strong> ${esc(a.setor || '—')}</div>
         <div><strong>Data:</strong> ${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))}</div>
       </div>
@@ -1130,6 +1170,12 @@ function renderEficienciaView() {
   const avaliacaoMediaGeral = avaliacoes.length
     ? Math.round((avaliacoes.reduce((acc, a) => acc + mediaAvaliacaoQualidade(a), 0) / avaliacoes.length) * 10) / 10
     : null;
+  // Equipe pré-selecionada no formulário "Novo atendimento": a do primeiro
+  // colaborador da lista, já que é ele quem o <select id="at-colaborador">
+  // mostra selecionado por padrão antes de qualquer interação (não dá para
+  // ler o valor do próprio <select> aqui — o HTML ainda não existe no DOM
+  // neste ponto do render).
+  const equipePadraoNovoAtendimento = state.employees.length ? equipeIdDoColaborador(state.employees[0].id) : null;
 
   document.getElementById('content').innerHTML = `
     <div class="section-title" style="margin-bottom:6px;">Eficiência, Qualidade e Alertas</div>
@@ -1216,7 +1262,13 @@ function renderEficienciaView() {
       <div class="card" style="padding:18px; margin-bottom:16px; max-width:760px;">
         <div class="form-grid" style="grid-template-columns:1fr 1fr;">
           <div class="form-field"><label>Colaborador</label>
-            <select id="at-colaborador">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+            <select id="at-colaborador" onchange="onAtColaboradorChange()">${state.employees.map(e => `<option value="${e.id}">${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
+          </div>
+          <div class="form-field"><label>Equipe <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
+            <select id="at-equipe">
+              <option value="">Sem equipe</option>
+              ${state.equipes.map(eq => `<option value="${eq.id}" ${eq.id === equipePadraoNovoAtendimento ? 'selected' : ''}>${esc(eq.nome)}</option>`).join('')}
+            </select>
           </div>
           <div class="form-field"><label>Cliente <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-cliente" placeholder="Nome do cliente atendido"></div>
           <div class="form-field"><label>Início do atendimento</label><input id="at-inicio" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
@@ -1244,7 +1296,7 @@ function renderEficienciaView() {
               ${a.resolucao && a.resolucao !== 'pendente' ? `<span class="status-pill" style="background:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor}22; color:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor};">${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].emoji} ${esc(RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].label)}</span>` : ''}
               ${temReferencia ? `<span class="status-pill" style="background:var(--brass-soft); color:var(--brass);">⭐ Referência</span>` : ''}
             </div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))} ${esc(isoParaHoraLocal(a.iniciadoEm))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')}${nomeEquipeDoAtendimento(a) ? ' · ' + esc(nomeEquipeDoAtendimento(a)) : ''} · início ${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))} ${esc(isoParaHoraLocal(a.iniciadoEm))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
           </div>
           ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
