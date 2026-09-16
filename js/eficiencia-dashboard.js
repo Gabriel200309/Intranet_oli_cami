@@ -164,6 +164,39 @@ function podeVerPainelEficiencia() {
   return isAdmin() || hasPermission('verSinalizacoesTodas') || souGestorDeAlgumSetor();
 }
 
+/* ================= FUSO HORÁRIO: helpers de data/hora =================
+   O banco guarda tudo em timestamptz (sempre em UTC) e o Supabase devolve a
+   string ISO já em UTC. Cortar essa string com slice(0,10)/slice(11,16) dá
+   o dia/hora em UTC, não no fuso local (Brasília = UTC-3) — a partir das 21h
+   locais já é "amanhã" em UTC. As funções abaixo convertem para o fuso do
+   navegador antes de extrair dia/hora — usar sempre que o valor vier de uma
+   coluna timestamptz (iniciadoEm, criadoEm, ocorridoEm, resolvidoEm, data
+   etc.). NUNCA usar em colunas "date" puras (ex.: periodo, prazo): essas já
+   são só "YYYY-MM-DD", sem horário, e "new Date('YYYY-MM-DD')" as leria
+   como meia-noite UTC, voltando um dia no fuso de Brasília — use
+   diaLocalDoValor (que trata os dois casos) ou formatarDataBR (que já lê a
+   string diretamente, sem conversão). */
+function isoParaDiaLocal(isoOuData) {
+  if (!isoOuData) return '';
+  const d = new Date(isoOuData);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function isoParaHoraLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function hojeLocalISO() { return isoParaDiaLocal(new Date()); }
+/* Aceita tanto uma data "pura" (coluna date, ex. avaliacoes_qualidade.periodo
+   ou sinalizacoes.prazo — já é o dia certo, nunca deve passar por
+   isoParaDiaLocal/new Date) quanto um timestamp completo (coluna
+   timestamptz, em UTC — precisa ser convertido para o dia local). */
+function diaLocalDoValor(valor) {
+  if (!valor) return '';
+  const s = String(valor);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : isoParaDiaLocal(s);
+}
+
 /* Na primeira vez que a tela é aberta, o período default é "mês atual",
    igual ao exemplo do escopo. Depois disso, respeita o que a pessoa
    escolher (inclusive limpar o filtro). */
@@ -172,8 +205,8 @@ function garantirFiltroEficienciaPadrao() {
   if (f.periodoInicio === null && f.periodoFim === null && !f._tocado) {
     const hoje = new Date();
     const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    f.periodoInicio = inicio.toISOString().slice(0, 10);
-    f.periodoFim = hoje.toISOString().slice(0, 10);
+    f.periodoInicio = isoParaDiaLocal(inicio);
+    f.periodoFim = isoParaDiaLocal(hoje);
   }
 }
 function setFiltroEficiencia(campo, valor) {
@@ -207,7 +240,7 @@ function passaFiltroEquipe(colaboradorId) {
 function eficienciaDataDentroPeriodo(isoDataOuNull) {
   const f = state.filtroEficiencia;
   if (!isoDataOuNull) return true; // registro sem data (ex.: dado de exemplo local) não é excluído por período
-  const dia = String(isoDataOuNull).slice(0, 10);
+  const dia = diaLocalDoValor(isoDataOuNull);
   if (f.periodoInicio && dia < f.periodoInicio) return false;
   if (f.periodoFim && dia > f.periodoFim) return false;
   return true;
@@ -226,7 +259,7 @@ function sinalizacoesFiltradasEficiencia() {
 function avaliacoesQualidadeFiltradas() {
   const f = state.filtroEficiencia;
   return state.avaliacoesQualidade.filter(a =>
-    eficienciaDataDentroPeriodo(a.data) &&
+    eficienciaDataDentroPeriodo(a.periodo || a.data) &&
     (!f.setor || a.setor === f.setor) &&
     passaFiltroEquipe(a.colaboradorId) &&
     (!f.colaboradorId || a.colaboradorId === f.colaboradorId)
@@ -313,7 +346,7 @@ function calcIndicadoresAlertas() {
   const { usaEquipes, porEquipe } = calcRankingPorEquipe(alertas);
 
   const comPrazo = alertas.filter(s => s.prazo);
-  const dentroPrazo = comPrazo.filter(s => s.resolvidoEm && String(s.resolvidoEm).slice(0, 10) <= s.prazo);
+  const dentroPrazo = comPrazo.filter(s => s.resolvidoEm && diaLocalDoValor(s.resolvidoEm) <= s.prazo);
 
   const porColaboradorMap = {};
   alertas.forEach(s => {
@@ -424,7 +457,7 @@ async function submitAvaliacaoQualidade() {
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!colaboradorEmp) { showToast('Selecione o colaborador avaliado.'); return; }
   const atendimentoChatId = state.avaliarAtendimentoChatId || null;
-  const periodo = val('aq-periodo') || new Date().toISOString().slice(0, 10);
+  const periodo = val('aq-periodo') || hojeLocalISO();
   const notas = {};
   for (const c of CRITERIOS_QUALIDADE) {
     const bruto = val('aq-' + c.key);
@@ -871,7 +904,7 @@ function formNovaAvaliacaoQualidade(atendimentoId) {
         <div class="form-field"><label>Colaborador avaliado</label>
           <select id="aq-colaborador" ${atendimento ? 'disabled' : ''}>${state.employees.map(e => `<option value="${e.id}" ${atendimento && e.id === atendimento.colaboradorId ? 'selected' : ''}>${esc(e.nome)} — ${esc(e.cargo)}</option>`).join('')}</select>
         </div>
-        <div class="form-field"><label>Período (competência)</label><input id="aq-periodo" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-field"><label>Período (competência)</label><input id="aq-periodo" type="date" value="${hojeLocalISO()}"></div>
         ${CRITERIOS_QUALIDADE.map(c => `
           <div class="form-field"><label>${esc(c.label)}</label><input id="aq-${c.key}" type="number" min="0" max="10" step="1" placeholder="0 a 10"></div>
         `).join('')}
@@ -890,7 +923,7 @@ function cardAvaliacaoQualidade(av) {
   return `
     <div class="card" style="padding:18px; margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
-        <div style="font-size:12px; color:var(--text-3);">Avaliado em ${esc(formatarDataBR((av.data||'').slice(0,10)))}${av.observacoes ? ' · ' + esc(av.observacoes) : ''}</div>
+        <div style="font-size:12px; color:var(--text-3);">Avaliado em ${esc(formatarDataBR(isoParaDiaLocal(av.data)))}${av.observacoes ? ' · ' + esc(av.observacoes) : ''}</div>
         ${podeGerenciar ? `<button class="admin-del-btn" title="Remover" onclick="removerAvaliacaoQualidade('${av.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
       </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:10px; margin-top:12px;">
@@ -914,7 +947,7 @@ function formNovoAtendimentoReferencia(atendimentoId) {
         <div class="form-field"><label>Vincular a um atendimento <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label>
           <select id="ar-atendimento">
             <option value="">— Nenhum —</option>
-            ${state.atendimentosChat.map(a => `<option value="${a.id}">${esc(a.cliente || 'sem cliente')} — ${esc(a.colaborador || '')} (${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))})</option>`).join('')}
+            ${state.atendimentosChat.map(a => `<option value="${a.id}">${esc(a.cliente || 'sem cliente')} — ${esc(a.colaborador || '')} (${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))})</option>`).join('')}
           </select>
         </div>` : ''}
         <div class="form-field" style="grid-column:span 2;"><label>Descrição (opcional)</label><input id="ar-descricao" placeholder="Por que esse atendimento é referência"></div>
@@ -948,7 +981,7 @@ function renderAtendimentoChatDetalhe() {
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-top:18px; font-size:12.5px; color:var(--text-2); line-height:1.8;">
         <div><strong>Colaborador:</strong> ${esc(a.colaborador || '—')}</div>
         <div><strong>Setor:</strong> ${esc(a.setor || '—')}</div>
-        <div><strong>Data:</strong> ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))}</div>
+        <div><strong>Data:</strong> ${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))}</div>
       </div>
       <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px;">
         <strong>Conversa no ChatGuru:</strong>
@@ -1009,7 +1042,7 @@ function renderAtendimentoChatDetalhe() {
           <div class="priority-bar" style="background:var(--brass);"></div>
           <div style="flex:1;">
             <div style="font-size:12.5px; font-weight:600;">${esc(ev.evento)}</div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:2px;">${esc(formatarDataBR((ev.ocorridoEm||'').slice(0,10)))} às ${esc((ev.ocorridoEm||'').slice(11,16))}${ev.autorId ? ' · ' + esc(responsavelNome(ev.autorId)) : ''}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:2px;">${esc(formatarDataBR(isoParaDiaLocal(ev.ocorridoEm)))} às ${esc(isoParaHoraLocal(ev.ocorridoEm))}${ev.autorId ? ' · ' + esc(responsavelNome(ev.autorId)) : ''}</div>
           </div>
         </div>
       `).join('') : `<div style="padding:20px; text-align:center; color:var(--text-3); font-size:12.5px;">Nenhum evento registrado ainda.</div>`}
@@ -1211,7 +1244,7 @@ function renderEficienciaView() {
               ${a.resolucao && a.resolucao !== 'pendente' ? `<span class="status-pill" style="background:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor}22; color:${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].cor};">${RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].emoji} ${esc(RESOLUCAO_ATENDIMENTO_INFO[a.resolucao].label)}</span>` : ''}
               ${temReferencia ? `<span class="status-pill" style="background:var(--brass-soft); color:var(--brass);">⭐ Referência</span>` : ''}
             </div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR((a.iniciadoEm||'').slice(0,10)))} ${esc((a.iniciadoEm||'').slice(11,16))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:3px;">${esc(a.setor||'')} · início ${esc(formatarDataBR(isoParaDiaLocal(a.iniciadoEm)))} ${esc(isoParaHoraLocal(a.iniciadoEm))}${tempoResposta ? ` · tempo de resposta ${tempoResposta}` : ''}</div>
           </div>
           ${podeGerenciar ? `
           <div style="display:flex; gap:6px; align-items:flex-start;" onclick="event.stopPropagation()">
@@ -1270,7 +1303,7 @@ function renderEficienciaView() {
           <div style="flex:1;">
             <div style="font-size:13px; font-weight:700;">⭐ ${esc(r.titulo)}</div>
             <div style="font-size:12px; color:var(--text-2); margin:4px 0;">${esc(r.descricao || '')}</div>
-            <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(r.colaborador || '')} · ${esc(r.setor || '')} · ${esc(formatarDataBR((r.data||'').slice(0,10)))}</div>
+            <div class="mono" style="font-size:10.5px; color:var(--text-3);"><i class="fa-solid fa-user" style="font-size:9px;"></i> ${esc(r.colaborador || '')} · ${esc(r.setor || '')} · ${esc(formatarDataBR(isoParaDiaLocal(r.data)))}</div>
             ${atendimentoVinculado ? `<button class="open-btn" style="margin-top:6px; display:inline-flex;" onclick="abrirAtendimentoChat('${atendimentoVinculado.id}')"><i class="fa-solid fa-link"></i> Ver atendimento vinculado</button>` : ''}
           </div>
           ${podeGerenciar ? `<button class="admin-del-btn" title="Remover" onclick="removerAtendimentoReferencia('${r.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
