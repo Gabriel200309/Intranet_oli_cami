@@ -127,6 +127,7 @@ async function carregarAtendimentosChat() {
   state.atendimentosChat = (data || []).map(a => ({
     id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
     cliente: a.cliente || '', linkChatguru: a.link_chatguru || '', status: a.status, iniciadoEm: a.iniciado_em,
+    equipeId: a.equipe_id || null, equipe: a.equipe_nome || '',
     alertaEnviadoEm: a.alerta_enviado_em || null, primeiraRespostaEm: a.primeira_resposta_em || null,
     resolucao: a.resolucao || 'pendente', resolvidoEm: a.resolvido_em || null, finalizadoEm: a.finalizado_em || null,
     registradoPorId: a.registrado_por, data: a.criado_em,
