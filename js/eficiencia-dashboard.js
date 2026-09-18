@@ -275,17 +275,6 @@ function eficienciaDataDentroPeriodo(isoDataOuNull) {
   if (f.periodoFim && dia > f.periodoFim) return false;
   return true;
 }
-function sinalizacoesFiltradasEficiencia() {
-  const f = state.filtroEficiencia;
-  return state.sinalizacoes.filter(s =>
-    eficienciaDataDentroPeriodo(s.criadoEm) &&
-    (!f.setor || s.setor === f.setor) &&
-    passaFiltroEquipe(s.colaboradorId) &&
-    (!f.colaboradorId || s.colaboradorId === f.colaboradorId) &&
-    (!f.tipoErro || s.tipoErro === f.tipoErro) &&
-    (!f.status || s.status === f.status)
-  );
-}
 function avaliacoesQualidadeFiltradas() {
   const f = state.filtroEficiencia;
   return state.avaliacoesQualidade.filter(a =>
@@ -379,48 +368,36 @@ function calcRankingPorEquipe(itens, resolverEquipeId) {
   return { usaEquipes, porEquipe: grupos };
 }
 
-function calcIndicadoresAlertas() {
-  const alertas = sinalizacoesFiltradasEficiencia();
-
-  const { usaEquipes, porEquipe } = calcRankingPorEquipe(alertas, s => equipeIdDoColaborador(s.colaboradorId));
-
-  const comPrazo = alertas.filter(s => s.prazo);
-  const dentroPrazo = comPrazo.filter(s => s.resolvidoEm && diaLocalDoValor(s.resolvidoEm) <= s.prazo);
+/* "Alerta" = ocorrência que entra no sistema, e isso é o próprio Atendimento
+   (Registro de Atendimentos) — decisão confirmada com o usuário: Sinalizações
+   de Colaboradores NÃO alimenta mais este painel (a tela de Sinalizações em
+   si continua existindo e funcionando normalmente, só deixou de ser a fonte
+   de dados dos indicadores de "Alertas" aqui). "Tipo de erro"/"prazo" e
+   "resolvido/não resolvido" ficam de fora daqui de propósito:
+   - tipo de erro/prazo: não existem em atendimentos_chat, e a decisão foi
+     não trazer isso de Sinalizações nem criar campo novo por enquanto;
+   - resolvido/não resolvido: já existem em Eficiência Operacional
+     (resolvidosQtd/naoResolvidosQtd, a partir de atendimentos_chat.resolucao)
+     — repetir aqui seria o mesmo número duas vezes na tela. */
+function calcIndicadoresAlertas(atendimentosChat) {
+  const { usaEquipes, porEquipe } = calcRankingPorEquipe(atendimentosChat, equipeIdEfetivaDoAtendimento);
 
   const porColaboradorMap = {};
-  alertas.forEach(s => {
-    const chave = s.colaboradorId || ('nome:' + (s.colaborador || '—'));
-    if (!porColaboradorMap[chave]) porColaboradorMap[chave] = { nome: s.colaborador || 'Colaborador removido', total: 0 };
+  atendimentosChat.forEach(a => {
+    const chave = a.colaboradorId || ('nome:' + (a.colaborador || '—'));
+    if (!porColaboradorMap[chave]) porColaboradorMap[chave] = { nome: a.colaborador || 'Colaborador removido', total: 0 };
     porColaboradorMap[chave].total++;
   });
-  // Todos os colaboradores com 2+ alertas no período/filtro — a contagem do
-  // card "Pessoas com reincidência" usa esta lista INTEIRA (reincidenciasQtd);
-  // "reincidencias" (só os 8 primeiros) é usada apenas para exibir o ranking,
-  // nunca para contar (bug corrigido: antes o card mostrava só o tamanho da
-  // lista já cortada em 8, subcontando reincidência quando havia mais de 8
-  // pessoas no período).
+  // Todos os colaboradores com 2+ atendimentos no período/filtro — a
+  // contagem do card "Pessoas com reincidência" usa esta lista INTEIRA
+  // (reincidenciasQtd); "reincidencias" (só os 8 primeiros) é usada apenas
+  // para exibir o ranking, nunca para contar.
   const todasReincidencias = Object.values(porColaboradorMap).filter(c => c.total >= 2).sort((a, b) => b.total - a.total);
   const reincidencias = todasReincidencias.slice(0, 8);
 
-  const porTipoMap = {};
-  alertas.forEach(s => { if (s.tipoErro) porTipoMap[s.tipoErro] = (porTipoMap[s.tipoErro] || 0) + 1; });
-  const tiposFrequentes = Object.entries(porTipoMap).map(([tipo, total]) => ({ tipo, total })).sort((a, b) => b.total - a.total);
-
-  const recorrenciaErros = alertas.filter(s => s.tipoErro && porTipoMap[s.tipoErro] >= 2).length;
-
   return {
-    alertas, porEquipe, usaEquipes, totalAlertas: alertas.length,
-    dentroPrazoQtd: dentroPrazo.length, comPrazoQtd: comPrazo.length,
-    reincidencias, reincidenciasQtd: todasReincidencias.length, tiposFrequentes, recorrenciaErros,
-    // "resolvidos" e "não resolvidos/abertos" são as duas únicas situações
-    // possíveis de um alerta (sinalizacao_status: aberta/resolvida — ver
-    // migração 0001) — por isso "abertos" e "não resolvidos" são
-    // exatamente o mesmo número aqui (não é um bug: para o atendimento
-    // (atendimentos_chat), que tem mais estágios, "aberto"/"resolvido" já
-    // são conceitos independentes — ver atendimentosAbertosQtd/
-    // resolvidosQtd/naoResolvidosQtd em renderEficienciaView).
-    resolvidos: alertas.filter(s => s.status === 'resolvida').length,
-    naoResolvidosOuAbertos: alertas.filter(s => s.status === 'aberta').length,
+    porEquipe, usaEquipes, totalAlertas: atendimentosChat.length,
+    reincidencias, reincidenciasQtd: todasReincidencias.length,
   };
 }
 function mediaCriterioQualidade(lista, chave) {
@@ -464,19 +441,6 @@ function filtrosEficienciaBar() {
           <select onchange="setFiltroEficiencia('colaboradorId', this.value)">
             <option value="" ${!f.colaboradorId ? 'selected' : ''}>Todos</option>
             ${state.employees.map(e => `<option value="${e.id}" ${f.colaboradorId === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-field"><label>Tipo de erro</label>
-          <select onchange="setFiltroEficiencia('tipoErro', this.value)">
-            <option value="" ${!f.tipoErro ? 'selected' : ''}>Todos</option>
-            ${tiposErroDisponiveis().map(t => `<option value="${esc(t)}" ${f.tipoErro === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-field"><label>Status</label>
-          <select onchange="setFiltroEficiencia('status', this.value)">
-            <option value="" ${!f.status ? 'selected' : ''}>Todos</option>
-            <option value="aberta" ${f.status === 'aberta' ? 'selected' : ''}>Aberta</option>
-            <option value="resolvida" ${f.status === 'resolvida' ? 'selected' : ''}>Resolvida</option>
           </select>
         </div>
       </div>
@@ -1222,20 +1186,14 @@ function renderEficienciaView() {
   assinarEficienciaRealtime();
   if (state.atendimentoChatAtivoId) { renderAtendimentoChatDetalhe(); return; }
   garantirFiltroEficienciaPadrao();
-  const ind = calcIndicadoresAlertas();
   const avaliacoes = avaliacoesQualidadeFiltradas();
   const atendimentosRef = atendimentosReferenciaFiltrados();
   const atendimentosChat = atendimentosChatFiltrados();
-
-  const cumprimentoPrazoValor = ind.comPrazoQtd === 0 ? 'Sem dados suficientes' : String(ind.dentroPrazoQtd);
-  const cumprimentoPrazoSub = ind.comPrazoQtd === 0 ? 'Nenhum alerta filtrado tem prazo definido.' : `${ind.dentroPrazoQtd} de ${ind.comPrazoQtd} com prazo definido`;
-
-  // "Atendimentos por equipe": usa a equipe própria do atendimento (a
-  // escolhida no cadastro — migração 0023), não a equipe atual do
-  // colaborador. Antes disso não existia nenhum quadro que usasse essa
-  // equipe — por isso um atendimento marcado com uma equipe nunca aparecia
-  // em lugar nenhum do painel.
-  const rankingAtendimentosPorEquipe = calcRankingPorEquipe(atendimentosChat, equipeIdEfetivaDoAtendimento);
+  // "Alerta" = atendimento (ocorrência registrada no sistema) — Sinalizações
+  // de Colaboradores não alimenta mais estes indicadores (ver
+  // calcIndicadoresAlertas). "Alertas por equipe" usa a equipe própria do
+  // atendimento (migração 0023), não a equipe atual do colaborador.
+  const ind = calcIndicadoresAlertas(atendimentosChat);
 
   // "Pendente" (status inicial, antes do alerta) — não confundir com o
   // status manual "Aguardando" (aguardando_terceiro, migração 0026),
@@ -1275,7 +1233,7 @@ function renderEficienciaView() {
   document.getElementById('content').innerHTML = `
     <div class="section-title" style="margin-bottom:6px;">Eficiência, Qualidade e Alertas</div>
     <div style="font-size:12px; color:var(--text-2); max-width:820px; margin-bottom:16px; line-height:1.5;">
-      Acompanhamento quantitativo e qualitativo do desempenho das equipes, a partir dos dados já registrados no portal (sinalizações de colaboradores) e das avaliações de qualidade/atendimentos de referência registrados aqui.
+      Acompanhamento quantitativo e qualitativo do desempenho das equipes, a partir do Registro de Atendimentos (cada atendimento é um "alerta" — uma ocorrência registrada no sistema) e das avaliações de qualidade/atendimentos de referência registrados aqui.
     </div>
 
     ${isAdmin() && state.migracoesPendentes.length ? `
@@ -1287,13 +1245,10 @@ function renderEficienciaView() {
     ${filtrosEficienciaBar()}
 
     <div class="section-title" style="margin-top:6px;">Alertas</div>
+    <div style="font-size:10.5px; color:var(--text-3); max-width:820px; margin:-8px 0 12px;"><i class="fa-solid fa-circle-info"></i> "Alerta" aqui é o Registro de Atendimentos (cada atendimento é uma ocorrência) — Sinalizações de Colaboradores não alimenta mais estes indicadores.</div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:14px; margin-bottom:16px;">
-      ${metricCard('Total de alertas', ind.totalAlertas)}
-      ${metricCard('Alertas resolvidos', ind.resolvidos)}
-      ${metricCard('Alertas abertos / não resolvidos', ind.naoResolvidosOuAbertos, 'Status "aberta" — para o alerta, "aberto" e "não resolvido" são a mesma situação (status binário: aberta/resolvida).')}
-      ${metricCard('Resolvidos dentro do prazo', cumprimentoPrazoValor, cumprimentoPrazoSub)}
+      ${metricCard('Total de alertas', ind.totalAlertas, 'Quantidade de atendimentos registrados no período/filtro selecionado.')}
       ${metricCard('Pessoas com reincidência', ind.reincidenciasQtd)}
-      ${metricCard('Tipos de erro registrados', ind.tiposFrequentes.length)}
     </div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px,1fr)); gap:14px; margin-bottom:24px;">
       <div class="card" style="padding:18px;">
@@ -1301,7 +1256,7 @@ function renderEficienciaView() {
         ${!ind.usaEquipes ? `
           <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-circle-info"></i> Nenhuma equipe cadastrada ainda — agrupando por setor. Cadastre as equipes em Administração &gt; Equipes para ver o ranking por equipe.</div>
         ` : `
-          <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;">A equipe de cada alerta é a equipe <strong>atual</strong> do colaborador sinalizado — se ele mudar de equipe, o alerta passa a contar para a equipe nova.</div>
+          <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;">A equipe de cada atendimento é a que foi escolhida no cadastro dele (com fallback para a equipe atual do colaborador, em atendimentos antigos sem equipe própria).</div>
         `}
         ${ind.porEquipe.length ? ind.porEquipe.map(p => `
           <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
@@ -1313,21 +1268,9 @@ function renderEficienciaView() {
           </div>
         `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhuma equipe cadastrada.</div>`}
       </div>
-      <div class="card" style="padding:18px;">
-        <div style="font-weight:700; font-size:13px; margin-bottom:10px;">Tipos de erro mais frequentes</div>
-        ${ind.tiposFrequentes.length ? ind.tiposFrequentes.map(t => `
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-            <div style="flex:1; font-size:12px; color:var(--text-2);">${esc(t.tipo)}</div>
-            <div style="flex:2; height:8px; background:var(--surface-2); border-radius:8px; overflow:hidden;">
-              <div style="height:100%; width:${Math.max((t.total / ind.tiposFrequentes[0].total) * 100, 4)}%; background:var(--danger); border-radius:8px;"></div>
-            </div>
-            <div class="mono" style="font-size:12px; font-weight:800; width:22px; text-align:right;">${t.total}</div>
-          </div>
-        `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhuma sinalização com tipo de erro classificado no período/filtro selecionado.</div>`}
-      </div>
     </div>
     <div class="card" style="overflow:hidden; margin-bottom:24px;">
-      <div style="padding:14px 16px; font-weight:700; font-size:13px; border-bottom:1px solid var(--border);">Reincidências (colaboradores com mais de uma sinalização)</div>
+      <div style="padding:14px 16px; font-weight:700; font-size:13px; border-bottom:1px solid var(--border);">Reincidências (colaboradores com mais de um atendimento)</div>
       ${ind.reincidencias.length ? `
       <div style="padding:8px 16px; font-size:10.5px; color:var(--text-3);">Mostrando as ${ind.reincidencias.length} maiores${ind.reincidenciasQtd > ind.reincidencias.length ? ` de ${ind.reincidenciasQtd} pessoas com reincidência no período/filtro selecionado` : ''}.</div>
       ` : ''}
@@ -1351,28 +1294,10 @@ function renderEficienciaView() {
       ${metricCard('Aguardando', chatsAguardandoTerceiroQtd, 'Solução não depende do responsável agora (ver migração 0026).')}
       ${metricCard('Chats pendentes', chatsPendentesQtd, 'Ainda não tiveram alerta enviado nem resposta registrada.')}
       ${metricCard('Avaliação', avaliacaoMediaGeral === null ? 'Sem dados suficientes' : avaliacaoMediaGeral.toFixed(1) + ' / 10')}
-      ${metricCard('Erros recorrentes', ind.recorrenciaErros, 'Alertas cujo tipo de erro já ocorreu 2 ou mais vezes no período/filtro selecionado.')}
-    </div>
-    <div class="card" style="padding:18px; margin-bottom:24px;">
-      <div style="font-weight:700; font-size:13px; margin-bottom:2px;">Atendimentos por equipe</div>
-      ${!rankingAtendimentosPorEquipe.usaEquipes ? `
-        <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-circle-info"></i> Nenhuma equipe cadastrada ainda — agrupando por setor. Cadastre as equipes em Administração &gt; Equipes para ver o ranking por equipe.</div>
-      ` : `
-        <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;">A equipe de cada atendimento é a que foi escolhida no cadastro dele (com fallback para a equipe atual do colaborador, em atendimentos antigos sem equipe própria) — ver campo "Equipe" no formulário de novo atendimento.</div>
-      `}
-      ${rankingAtendimentosPorEquipe.porEquipe.length ? rankingAtendimentosPorEquipe.porEquipe.map(p => `
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-          <div style="flex:1; font-size:12px; color:var(--text-2);">${esc(p.nome)}</div>
-          <div style="flex:2; height:8px; background:var(--surface-2); border-radius:8px; overflow:hidden;">
-            <div style="height:100%; width:${atendimentosChat.length ? Math.max((p.total / atendimentosChat.length) * 100, p.total ? 4 : 0) : 0}%; background:var(--brass); border-radius:8px;"></div>
-          </div>
-          <div class="mono" style="font-size:12px; font-weight:800; width:22px; text-align:right;">${p.total}</div>
-        </div>
-      `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhuma equipe cadastrada.</div>`}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
-      <div class="section-title" style="margin-bottom:0;">Registro de Atendimentos <span style="color:var(--text-3); text-transform:none; font-weight:600;">(alimenta os indicadores de Eficiência Operacional acima)</span></div>
+      <div class="section-title" style="margin-bottom:0;">Registro de Atendimentos <span style="color:var(--text-3); text-transform:none; font-weight:600;">(alimenta os indicadores de Eficiência Operacional e de Alertas acima)</span></div>
       ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovoAtendimentoChat()"><i class="fa-solid fa-plus"></i> Novo atendimento</button>` : ''}
     </div>
     ${state.novoAtendimentoChat && isAdmin() ? `
