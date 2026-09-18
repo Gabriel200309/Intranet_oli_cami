@@ -75,9 +75,23 @@ const STATUS_ATENDIMENTO_CHAT = [
   { value: 'aguardando', label: 'Pendente', cor: 'var(--danger)' },
   { value: 'alerta_enviado', label: 'Alerta enviado', cor: '#B4881F' },
   { value: 'em_atendimento', label: 'Em atendimento', cor: '#2E6DB4' },
+  { value: 'aguardando_terceiro', label: 'Aguardando', cor: '#8B5FBF' },
   { value: 'respondido', label: 'Respondido', cor: 'var(--success)' },
   { value: 'finalizado', label: 'Encerrado', cor: 'var(--text-3)' },
 ];
+/* "Aguardando" (migração 0026) é um estado MANUAL, diferente dos demais
+   (que avançam sozinhos a partir das colunas de data/hora — ver trigger
+   trg_atendimento_chat_status_auto): usado quando a solução não depende
+   imediatamente do responsável (ex.: aguardando retorno do cliente ou de
+   outro setor). "Retomar" devolve o status que o próprio andamento das
+   datas já indicaria, exatamente a mesma regra do trigger no banco — nunca
+   um valor fixo, para não retroceder/avançar o atendimento incorretamente. */
+function statusNaturalAtendimento(a) {
+  if (a.finalizadoEm) return 'finalizado';
+  if (a.primeiraRespostaEm) return 'respondido';
+  if (a.alertaEnviadoEm) return 'alerta_enviado';
+  return 'aguardando';
+}
 /* "A demanda foi resolvida?" — resposta explícita, independente do status
    do fluxo acima. Pode ser alterada/revertida a qualquer momento. */
 const RESOLUCAO_ATENDIMENTO_INFO = {
@@ -370,7 +384,14 @@ function calcIndicadoresAlertas() {
     if (!porColaboradorMap[chave]) porColaboradorMap[chave] = { nome: s.colaborador || 'Colaborador removido', total: 0 };
     porColaboradorMap[chave].total++;
   });
-  const reincidencias = Object.values(porColaboradorMap).filter(c => c.total >= 2).sort((a, b) => b.total - a.total).slice(0, 8);
+  // Todos os colaboradores com 2+ alertas no período/filtro — a contagem do
+  // card "Pessoas com reincidência" usa esta lista INTEIRA (reincidenciasQtd);
+  // "reincidencias" (só os 8 primeiros) é usada apenas para exibir o ranking,
+  // nunca para contar (bug corrigido: antes o card mostrava só o tamanho da
+  // lista já cortada em 8, subcontando reincidência quando havia mais de 8
+  // pessoas no período).
+  const todasReincidencias = Object.values(porColaboradorMap).filter(c => c.total >= 2).sort((a, b) => b.total - a.total);
+  const reincidencias = todasReincidencias.slice(0, 8);
 
   const porTipoMap = {};
   alertas.forEach(s => { if (s.tipoErro) porTipoMap[s.tipoErro] = (porTipoMap[s.tipoErro] || 0) + 1; });
@@ -381,9 +402,16 @@ function calcIndicadoresAlertas() {
   return {
     alertas, porEquipe, usaEquipes, totalAlertas: alertas.length,
     dentroPrazoQtd: dentroPrazo.length, comPrazoQtd: comPrazo.length,
-    reincidencias, tiposFrequentes, recorrenciaErros,
-    solucionados: alertas.filter(s => s.status === 'resolvida').length,
-    pendentes: alertas.filter(s => s.status === 'aberta').length,
+    reincidencias, reincidenciasQtd: todasReincidencias.length, tiposFrequentes, recorrenciaErros,
+    // "resolvidos" e "não resolvidos/abertos" são as duas únicas situações
+    // possíveis de um alerta (sinalizacao_status: aberta/resolvida — ver
+    // migração 0001) — por isso "abertos" e "não resolvidos" são
+    // exatamente o mesmo número aqui (não é um bug: para o atendimento
+    // (atendimentos_chat), que tem mais estágios, "aberto"/"resolvido" já
+    // são conceitos independentes — ver atendimentosAbertosQtd/
+    // resolvidosQtd/naoResolvidosQtd em renderEficienciaView).
+    resolvidos: alertas.filter(s => s.status === 'resolvida').length,
+    naoResolvidosOuAbertos: alertas.filter(s => s.status === 'aberta').length,
   };
 }
 function mediaCriterioQualidade(lista, chave) {
@@ -752,7 +780,7 @@ async function enviarAlertaAtendimentoChat(id, quandoIso) {
     const a = state.atendimentosChat.find(x => x.id === id);
     if (a && !a.alertaEnviadoEm) {
       a.alertaEnviadoEm = quando;
-      if (a.status === 'aguardando') a.status = 'alerta_enviado';
+      if (['aguardando', 'aguardando_terceiro'].includes(a.status)) a.status = 'alerta_enviado';
       registrarEventoAtendimentoLocal(id, 'Alerta enviado ao grupo', quando);
     }
     renderEficienciaView();
@@ -769,7 +797,7 @@ async function registrarPrimeiraRespostaAtendimento(id, quandoIso) {
     const a = state.atendimentosChat.find(x => x.id === id);
     if (a && !a.primeiraRespostaEm) {
       a.primeiraRespostaEm = quando;
-      if (['aguardando', 'alerta_enviado', 'em_atendimento'].includes(a.status)) a.status = 'respondido';
+      if (['aguardando', 'alerta_enviado', 'em_atendimento', 'aguardando_terceiro'].includes(a.status)) a.status = 'respondido';
       registrarEventoAtendimentoLocal(id, `Cliente respondido${a.colaborador ? ' por ' + a.colaborador : ''}`, quando);
     }
     renderEficienciaView();
@@ -805,6 +833,44 @@ async function definirResolucaoAtendimento(id, valor) {
       : 'Não foi possível registrar: ' + error.message);
     return;
   }
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
+  renderEficienciaView();
+}
+/* "Aguardando" (migração 0026): pausa manual do atendimento quando a
+   solução não depende do responsável agora — nunca altera resolucao/status
+   de fluxo além do próprio valor "aguardando_terceiro"; "Retomar" devolve o
+   status natural (statusNaturalAtendimento), a mesma regra usada pelo
+   trigger automático do banco. */
+async function marcarAguardandoAtendimento(id) {
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (a && a.status === 'finalizado') { showToast('Este atendimento já está encerrado.'); return; }
+  if (!supabaseClient) {
+    if (a) { a.status = 'aguardando_terceiro'; registrarEventoAtendimentoLocal(id, 'Atendimento marcado como Aguardando (solução não depende do responsável agora)'); }
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ status: 'aguardando_terceiro' }).eq('id', id);
+  if (error) {
+    showToast(error.code === '22P02'
+      ? 'Não foi possível salvar: o status "Aguardando" ainda não existe no banco — peça ao administrador do banco para aplicar a migração 0026.'
+      : 'Não foi possível marcar como Aguardando: ' + error.message);
+    return;
+  }
+  await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
+  renderEficienciaView();
+}
+async function retomarAtendimentoChat(id) {
+  const a = state.atendimentosChat.find(x => x.id === id);
+  if (!a) return;
+  const novoStatus = statusNaturalAtendimento(a);
+  if (!supabaseClient) {
+    a.status = novoStatus;
+    registrarEventoAtendimentoLocal(id, 'Atendimento retomado (saiu de Aguardando)');
+    renderEficienciaView();
+    return;
+  }
+  const { error } = await supabaseClient.from('atendimentos_chat').update({ status: novoStatus }).eq('id', id);
+  if (error) { showToast('Não foi possível retomar o atendimento: ' + error.message); return; }
   await Promise.all([carregarAtendimentosChat(), carregarAtendimentoChatEventos()]);
   renderEficienciaView();
 }
@@ -1040,6 +1106,9 @@ function renderAtendimentoChatDetalhe() {
           ${!a.alertaEnviadoEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleEnviarAlertaAtendimentoChat()"><i class="fa-solid fa-bullhorn"></i> Enviar alerta ao grupo</button>` : ''}
           ${!a.primeiraRespostaEm ? `<button class="admin-add-btn" style="margin-top:0;" onclick="toggleRegistrarRespostaAtendimentoChat()"><i class="fa-solid fa-reply"></i> Registrar resposta</button>` : ''}
           ${!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleEncerrarAtendimentoChat()"><i class="fa-solid fa-flag-checkered"></i> Encerrar atendimento</button>` : ''}
+          ${a.status === 'aguardando_terceiro'
+            ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="retomarAtendimentoChat('${a.id}')"><i class="fa-solid fa-play"></i> Retomar atendimento</button>`
+            : (!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="marcarAguardandoAtendimento('${a.id}')"><i class="fa-solid fa-pause"></i> Marcar como Aguardando</button>` : '')}
           <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
         </div>
         ${state.enviarAlertaAtendimentoChatAberto ? `
@@ -1152,7 +1221,17 @@ function renderEficienciaView() {
   const cumprimentoPrazoValor = ind.comPrazoQtd === 0 ? 'Sem dados suficientes' : String(ind.dentroPrazoQtd);
   const cumprimentoPrazoSub = ind.comPrazoQtd === 0 ? 'Nenhum alerta filtrado tem prazo definido.' : `${ind.dentroPrazoQtd} de ${ind.comPrazoQtd} com prazo definido`;
 
-  const chatsAguardandoQtd = atendimentosChat.filter(a => a.status === 'aguardando').length;
+  // "Pendente" (status inicial, antes do alerta) — não confundir com o
+  // status manual "Aguardando" (aguardando_terceiro, migração 0026),
+  // contado separadamente abaixo.
+  const chatsPendentesQtd = atendimentosChat.filter(a => a.status === 'aguardando').length;
+  const chatsAguardandoTerceiroQtd = atendimentosChat.filter(a => a.status === 'aguardando_terceiro').length;
+  // "Aberto" = qualquer atendimento que ainda não foi encerrado (qualquer
+  // status exceto "finalizado"), independente da etapa do fluxo em que
+  // está — ponto 8 do pedido de correção: o resumo não pode considerar só
+  // os atendimentos já encerrados.
+  const atendimentosAbertosQtd = atendimentosChat.filter(a => a.status !== 'finalizado').length;
+  const atendimentosEncerradosQtd = atendimentosChat.filter(a => a.status === 'finalizado').length;
   const tempoPrimeiraRespostaMin = calcTempoPrimeiraRespostaMin(atendimentosChat);
   const tempoPrimeiraRespostaValor = tempoPrimeiraRespostaMin === null ? 'Sem dados suficientes' : formatarDuracaoMin(tempoPrimeiraRespostaMin);
   const tempoPrimeiraRespostaSub = tempoPrimeiraRespostaMin === null
@@ -1194,8 +1273,10 @@ function renderEficienciaView() {
     <div class="section-title" style="margin-top:6px;">Alertas</div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:14px; margin-bottom:16px;">
       ${metricCard('Total de alertas', ind.totalAlertas)}
+      ${metricCard('Alertas resolvidos', ind.resolvidos)}
+      ${metricCard('Alertas abertos / não resolvidos', ind.naoResolvidosOuAbertos, 'Status "aberta" — para o alerta, "aberto" e "não resolvido" são a mesma situação (status binário: aberta/resolvida).')}
       ${metricCard('Resolvidos dentro do prazo', cumprimentoPrazoValor, cumprimentoPrazoSub)}
-      ${metricCard('Pessoas com reincidência', ind.reincidencias.length)}
+      ${metricCard('Pessoas com reincidência', ind.reincidenciasQtd)}
       ${metricCard('Tipos de erro registrados', ind.tiposFrequentes.length)}
     </div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px,1fr)); gap:14px; margin-bottom:24px;">
@@ -1231,6 +1312,9 @@ function renderEficienciaView() {
     </div>
     <div class="card" style="overflow:hidden; margin-bottom:24px;">
       <div style="padding:14px 16px; font-weight:700; font-size:13px; border-bottom:1px solid var(--border);">Reincidências (colaboradores com mais de uma sinalização)</div>
+      ${ind.reincidencias.length ? `
+      <div style="padding:8px 16px; font-size:10.5px; color:var(--text-3);">Mostrando as ${ind.reincidencias.length} maiores${ind.reincidenciasQtd > ind.reincidencias.length ? ` de ${ind.reincidenciasQtd} pessoas com reincidência no período/filtro selecionado` : ''}.</div>
+      ` : ''}
       ${ind.reincidencias.length ? ind.reincidencias.map(r => `
         <div class="aviso-row" style="cursor:default;">
           <div style="flex:1; font-size:13px; font-weight:600;">${esc(r.nome)}</div>
@@ -1244,18 +1328,18 @@ function renderEficienciaView() {
       ${metricCard('Tempo de Alerta', tempoAlertaMedioValor, 'Média: do alerta recebido pelo líder até ele responder o cliente.')}
       ${metricCard('Tempo de Resolução', tempoResolucaoMedioValor, 'Média: da resposta do líder até o atendimento ser encerrado.')}
       ${metricCard('Tempo de primeira resposta', tempoPrimeiraRespostaValor, tempoPrimeiraRespostaSub)}
-      ${metricCard('Resolvido', resolvidosQtd)}
-      ${metricCard('Não Resolvido', naoResolvidosQtd)}
+      ${metricCard('Atendimentos abertos', atendimentosAbertosQtd, 'Ainda não encerrados (qualquer etapa do fluxo).')}
+      ${metricCard('Atendimentos encerrados', atendimentosEncerradosQtd)}
+      ${metricCard('Resolvido', resolvidosQtd, '"A demanda foi resolvida?" = Sim, no período/filtro selecionado.')}
+      ${metricCard('Não Resolvido', naoResolvidosQtd, '"A demanda foi resolvida?" = Não, no período/filtro selecionado.')}
+      ${metricCard('Aguardando', chatsAguardandoTerceiroQtd, 'Solução não depende do responsável agora (ver migração 0026).')}
+      ${metricCard('Chats pendentes', chatsPendentesQtd, 'Ainda não tiveram alerta enviado nem resposta registrada.')}
       ${metricCard('Avaliação', avaliacaoMediaGeral === null ? 'Sem dados suficientes' : avaliacaoMediaGeral.toFixed(1) + ' / 10')}
-      ${metricCard('Chats aguardando', chatsAguardandoQtd)}
-      ${metricCard('Prazos cumpridos', cumprimentoPrazoValor, cumprimentoPrazoSub)}
-      ${metricCard('Pendências sem retorno', ind.pendentes, 'Alertas com status "aberta" no período/filtro selecionado.')}
-      ${metricCard('Alertas solucionados', ind.solucionados)}
       ${metricCard('Erros recorrentes', ind.recorrenciaErros, 'Alertas cujo tipo de erro já ocorreu 2 ou mais vezes no período/filtro selecionado.')}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
-      <div class="section-title" style="margin-bottom:0;">Registro de Atendimentos <span style="color:var(--text-3); text-transform:none; font-weight:600;">(alimenta o tempo de primeira resposta e os chats aguardando acima)</span></div>
+      <div class="section-title" style="margin-bottom:0;">Registro de Atendimentos <span style="color:var(--text-3); text-transform:none; font-weight:600;">(alimenta os indicadores de Eficiência Operacional acima)</span></div>
       ${isAdmin() ? `<button class="btn-brass" onclick="toggleNovoAtendimentoChat()"><i class="fa-solid fa-plus"></i> Novo atendimento</button>` : ''}
     </div>
     ${state.novoAtendimentoChat && isAdmin() ? `
