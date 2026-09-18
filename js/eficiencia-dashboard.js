@@ -330,21 +330,30 @@ function formatarDuracaoMin(min) {
   return `${d}d${hr ? ' ' + hr + 'h' : ''}`;
 }
 
-/* Ranking "Alertas por equipe": agrupa por EQUIPE (não por setor). Se ainda
-   não houver nenhuma equipe cadastrada, cai de volta para o agrupamento por
-   setor (comportamento anterior) — transição seguindo o pedido de que nada
-   quebre nem fique em branco enquanto o administrador não cadastra as
-   equipes em Administração > Equipes.
-   Regras de ordenação: pontuação (nº de alertas no período/filtro) da
-   maior para a menor; empate é desfeito pela "ordem" cadastrada na equipe
-   (menor primeiro); equipe sem ordem definida vai para o fim, em ordem
-   alfabética. Todas as equipes cadastradas aparecem, mesmo zeradas; um
-   alerta de colaborador sem equipe atribuída cai no grupo "Sem equipe". */
-function calcRankingPorEquipe(alertas) {
+/* Ranking "por equipe": agrupa uma lista de itens (alertas OU atendimentos —
+   ver resolverEquipeId) por EQUIPE (não por setor). Se ainda não houver
+   nenhuma equipe cadastrada, cai de volta para o agrupamento por setor
+   (comportamento anterior) — transição seguindo o pedido de que nada quebre
+   nem fique em branco enquanto o administrador não cadastra as equipes em
+   Administração > Equipes.
+   Regras de ordenação: pontuação (nº de itens no período/filtro) da maior
+   para a menor; empate é desfeito pela "ordem" cadastrada na equipe (menor
+   primeiro); equipe sem ordem definida vai para o fim, em ordem alfabética.
+   Todas as equipes cadastradas aparecem, mesmo zeradas; um item sem equipe
+   resolvida cai no grupo "Sem equipe".
+   resolverEquipeId(item) decide de onde vem a equipe de cada item: para
+   alertas (sinalizações, que não têm equipe própria) é a equipe ATUAL do
+   colaborador sinalizado (equipeIdDoColaborador); para atendimentos
+   (que têm equipe própria — ver migração 0023) é a equipe EFETIVA do
+   atendimento (equipeIdEfetivaDoAtendimento) — nunca a mesma função para os
+   dois, senão a equipe escolhida no cadastro do atendimento é ignorada
+   (era exatamente esse o bug: um atendimento marcado com a equipe Celeste
+   não aparecia em nenhum quadro, porque só existia o ranking de alertas). */
+function calcRankingPorEquipe(itens, resolverEquipeId) {
   const usaEquipes = state.equipes.length > 0;
   if (!usaEquipes) {
     const porSetorMap = {};
-    alertas.forEach(s => { porSetorMap[s.setor] = (porSetorMap[s.setor] || 0) + 1; });
+    itens.forEach(s => { porSetorMap[s.setor] = (porSetorMap[s.setor] || 0) + 1; });
     const setoresConhecidos = new Set(state.setores);
     const porEquipe = state.setores.map(s => ({ nome: s, total: porSetorMap[s] || 0 }))
       .concat(Object.keys(porSetorMap).filter(s => !setoresConhecidos.has(s)).map(s => ({ nome: s, total: porSetorMap[s] })))
@@ -352,8 +361,8 @@ function calcRankingPorEquipe(alertas) {
     return { usaEquipes, porEquipe };
   }
   const contagemPorEquipeId = {};
-  alertas.forEach(s => {
-    const eqId = equipeIdDoColaborador(s.colaboradorId) || '__sem_equipe__';
+  itens.forEach(item => {
+    const eqId = resolverEquipeId(item) || '__sem_equipe__';
     contagemPorEquipeId[eqId] = (contagemPorEquipeId[eqId] || 0) + 1;
   });
   const grupos = state.equipes.map(eq => ({ nome: eq.nome, ordem: eq.ordem, total: contagemPorEquipeId[eq.id] || 0 }));
@@ -373,7 +382,7 @@ function calcRankingPorEquipe(alertas) {
 function calcIndicadoresAlertas() {
   const alertas = sinalizacoesFiltradasEficiencia();
 
-  const { usaEquipes, porEquipe } = calcRankingPorEquipe(alertas);
+  const { usaEquipes, porEquipe } = calcRankingPorEquipe(alertas, s => equipeIdDoColaborador(s.colaboradorId));
 
   const comPrazo = alertas.filter(s => s.prazo);
   const dentroPrazo = comPrazo.filter(s => s.resolvidoEm && diaLocalDoValor(s.resolvidoEm) <= s.prazo);
@@ -1221,6 +1230,13 @@ function renderEficienciaView() {
   const cumprimentoPrazoValor = ind.comPrazoQtd === 0 ? 'Sem dados suficientes' : String(ind.dentroPrazoQtd);
   const cumprimentoPrazoSub = ind.comPrazoQtd === 0 ? 'Nenhum alerta filtrado tem prazo definido.' : `${ind.dentroPrazoQtd} de ${ind.comPrazoQtd} com prazo definido`;
 
+  // "Atendimentos por equipe": usa a equipe própria do atendimento (a
+  // escolhida no cadastro — migração 0023), não a equipe atual do
+  // colaborador. Antes disso não existia nenhum quadro que usasse essa
+  // equipe — por isso um atendimento marcado com uma equipe nunca aparecia
+  // em lugar nenhum do painel.
+  const rankingAtendimentosPorEquipe = calcRankingPorEquipe(atendimentosChat, equipeIdEfetivaDoAtendimento);
+
   // "Pendente" (status inicial, antes do alerta) — não confundir com o
   // status manual "Aguardando" (aguardando_terceiro, migração 0026),
   // contado separadamente abaixo.
@@ -1336,6 +1352,23 @@ function renderEficienciaView() {
       ${metricCard('Chats pendentes', chatsPendentesQtd, 'Ainda não tiveram alerta enviado nem resposta registrada.')}
       ${metricCard('Avaliação', avaliacaoMediaGeral === null ? 'Sem dados suficientes' : avaliacaoMediaGeral.toFixed(1) + ' / 10')}
       ${metricCard('Erros recorrentes', ind.recorrenciaErros, 'Alertas cujo tipo de erro já ocorreu 2 ou mais vezes no período/filtro selecionado.')}
+    </div>
+    <div class="card" style="padding:18px; margin-bottom:24px;">
+      <div style="font-weight:700; font-size:13px; margin-bottom:2px;">Atendimentos por equipe</div>
+      ${!rankingAtendimentosPorEquipe.usaEquipes ? `
+        <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;"><i class="fa-solid fa-circle-info"></i> Nenhuma equipe cadastrada ainda — agrupando por setor. Cadastre as equipes em Administração &gt; Equipes para ver o ranking por equipe.</div>
+      ` : `
+        <div style="font-size:10.5px; color:var(--text-3); margin-bottom:10px;">A equipe de cada atendimento é a que foi escolhida no cadastro dele (com fallback para a equipe atual do colaborador, em atendimentos antigos sem equipe própria) — ver campo "Equipe" no formulário de novo atendimento.</div>
+      `}
+      ${rankingAtendimentosPorEquipe.porEquipe.length ? rankingAtendimentosPorEquipe.porEquipe.map(p => `
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          <div style="flex:1; font-size:12px; color:var(--text-2);">${esc(p.nome)}</div>
+          <div style="flex:2; height:8px; background:var(--surface-2); border-radius:8px; overflow:hidden;">
+            <div style="height:100%; width:${atendimentosChat.length ? Math.max((p.total / atendimentosChat.length) * 100, p.total ? 4 : 0) : 0}%; background:var(--brass); border-radius:8px;"></div>
+          </div>
+          <div class="mono" style="font-size:12px; font-weight:800; width:22px; text-align:right;">${p.total}</div>
+        </div>
+      `).join('') : `<div style="font-size:12px; color:var(--text-3);">Nenhuma equipe cadastrada.</div>`}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:10px;">
