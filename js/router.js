@@ -146,7 +146,7 @@ function renderCursosCatalogo() {
               <div style="font-size:14.5px; font-weight:800; margin-bottom:6px;">${esc(curso.nome)}</div>
               <div style="font-size:12px; color:var(--text-2); line-height:1.5; margin-bottom:2px;">${esc(curso.descricao.length > 100 ? curso.descricao.slice(0,99)+'…' : curso.descricao)}</div>
               <div class="curso-speaker-row">
-                ${curso.palestrante.foto ? `<img class="curso-speaker-avatar" src="${curso.palestrante.foto}">` : `<div class="curso-speaker-avatar" style="display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:var(--text-3);">${esc(initials(curso.palestrante.nome))}</div>`}
+                ${curso.palestrante.foto ? `<img class="curso-speaker-avatar" src="${esc(safeUrl(curso.palestrante.foto))}">` : `<div class="curso-speaker-avatar" style="display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:var(--text-3);">${esc(initials(curso.palestrante.nome))}</div>`}
                 <span>${esc(curso.palestrante.nome)}</span>
               </div>
               <div style="font-size:11px; color:var(--text-3); margin-top:8px;"><i class="fa-solid fa-layer-group" style="font-size:9px;"></i> ${totalAulas(curso)} aula${totalAulas(curso)===1?'':'s'}</div>
@@ -187,19 +187,19 @@ function renderAulaConteudo(aula) {
     if (/vimeo\.com/.test(aula.url)) {
       return `<div class="curso-player-frame"><iframe src="${esc(toVimeoEmbed(aula.url))}" allowfullscreen allow="autoplay; encrypted-media"></iframe></div>`;
     }
-    return `<div class="curso-player-frame"><video controls src="${esc(aula.url)}"></video></div>`;
+    return `<div class="curso-player-frame"><video controls src="${esc(safeUrl(aula.url))}"></video></div>`;
   }
   if (aula.tipo === 'pdf') {
     return `
-      <div class="curso-pdf-frame"><iframe src="${esc(aula.url)}"></iframe></div>
-      <a class="btn-brass" href="${esc(aula.url)}" download="${esc(nomeArquivoDeUrl(aula.url))}" style="margin-top:12px; display:inline-flex;">Baixar PDF <i class="fa-solid fa-download"></i></a>
+      <div class="curso-pdf-frame"><iframe src="${esc(safeUrl(aula.url))}"></iframe></div>
+      <a class="btn-brass" href="${esc(safeUrl(aula.url))}" download="${esc(nomeArquivoDeUrl(aula.url))}" style="margin-top:12px; display:inline-flex;">Baixar PDF <i class="fa-solid fa-download"></i></a>
     `;
   }
   return `
     <div class="card" style="padding:36px; text-align:center;">
       <i class="fa-solid ${info.icon}" style="font-size:36px; color:var(--brass); margin-bottom:16px; display:block;"></i>
       <div style="font-weight:700; margin-bottom:16px;">${esc(aula.titulo)}</div>
-      <a class="btn-brass" href="${esc(aula.url)}" download="${esc(nomeArquivoDeUrl(aula.url))}">Baixar arquivo <i class="fa-solid fa-download"></i></a>
+      <a class="btn-brass" href="${esc(safeUrl(aula.url))}" download="${esc(nomeArquivoDeUrl(aula.url))}">Baixar arquivo <i class="fa-solid fa-download"></i></a>
     </div>
   `;
 }
@@ -241,16 +241,16 @@ function renderCursoDetalhe() {
         <div class="card" style="padding:16px; margin-top:14px;">
           <div style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--text-3); margin-bottom:10px;">Sobre o palestrante</div>
           <div class="speaker-card">
-            ${p.foto ? `<img class="speaker-photo" src="${p.foto}">` : `<div class="speaker-photo" style="display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--text-3);">${esc(initials(p.nome))}</div>`}
+            ${p.foto ? `<img class="speaker-photo" src="${esc(safeUrl(p.foto))}">` : `<div class="speaker-photo" style="display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--text-3);">${esc(initials(p.nome))}</div>`}
             <div style="flex:1; min-width:0;">
               <div style="font-size:13px; font-weight:800;">${esc(p.nome)}</div>
               <div style="font-size:11.5px; color:var(--text-3);">${esc(p.cargo)}${p.empresa?` · ${esc(p.empresa)}`:''}</div>
             </div>
           </div>
           <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-            ${p.linkedin ? `<a class="speaker-social-btn" href="${esc(p.linkedin)}" target="_blank" rel="noopener noreferrer" title="LinkedIn"><i class="fa-brands fa-linkedin-in"></i></a>` : ''}
-            ${p.instagram ? `<a class="speaker-social-btn" href="${esc(p.instagram)}" target="_blank" rel="noopener noreferrer" title="Instagram"><i class="fa-brands fa-instagram"></i></a>` : ''}
-            ${p.website ? `<a class="speaker-social-btn" href="${esc(p.website)}" target="_blank" rel="noopener noreferrer" title="Website"><i class="fa-solid fa-globe"></i></a>` : ''}
+            ${p.linkedin ? `<a class="speaker-social-btn" href="${esc(safeUrl(p.linkedin))}" target="_blank" rel="noopener noreferrer" title="LinkedIn"><i class="fa-brands fa-linkedin-in"></i></a>` : ''}
+            ${p.instagram ? `<a class="speaker-social-btn" href="${esc(safeUrl(p.instagram))}" target="_blank" rel="noopener noreferrer" title="Instagram"><i class="fa-brands fa-instagram"></i></a>` : ''}
+            ${p.website ? `<a class="speaker-social-btn" href="${esc(safeUrl(p.website))}" target="_blank" rel="noopener noreferrer" title="Website"><i class="fa-solid fa-globe"></i></a>` : ''}
             ${p.contato ? `<a class="speaker-social-btn" href="mailto:${esc(p.contato)}" title="Contato"><i class="fa-solid fa-envelope"></i></a>` : ''}
           </div>
         </div>
@@ -261,7 +261,7 @@ function renderCursoDetalhe() {
               <div class="material-item">
                 <div class="material-icon"><i class="fa-solid fa-paperclip"></i></div>
                 <div style="flex:1; min-width:0; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(m.nome)}</div>
-                ${m.url ? `<a class="admin-edit-btn" href="${esc(m.url)}" download="${esc(m.nome)}" title="Baixar"><i class="fa-solid fa-download" style="font-size:12px;"></i></a>` : ''}
+                ${m.url ? `<a class="admin-edit-btn" href="${esc(safeUrl(m.url))}" download="${esc(m.nome)}" title="Baixar"><i class="fa-solid fa-download" style="font-size:12px;"></i></a>` : ''}
               </div>
             `).join('')}
           </div>
@@ -409,7 +409,7 @@ function renderNavSectionView(viewKey) {
       ${mod ? `
         <div style="margin-top:18px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           ${mod.link && mod.link.trim()
-            ? `<a class="btn-brass" href="${esc(mod.link)}" target="_blank" rel="noopener noreferrer">Abrir sistema <i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
+            ? `<a class="btn-brass" href="${esc(safeUrl(mod.link))}" target="_blank" rel="noopener noreferrer">Abrir sistema <i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
             : `<button class="btn-brass" onclick="openModuleLinkById(${mod.id}, event)">Abrir sistema <i class="fa-solid fa-arrow-up-right-from-square"></i></button>
                <span style="font-size:11px; color:var(--text-3);"><span class="link-missing-dot"></span> Link não configurado${isAdmin() ? ' — configure em Administração › Acesso rápido' : ''}</span>`}
         </div>
