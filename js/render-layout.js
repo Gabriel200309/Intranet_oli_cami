@@ -176,7 +176,7 @@ function onTeamPhotoClick() { if (isAdmin()) document.getElementById('teamFileIn
 function openModuleLink(m) {
   const check = moduleAccessCheck(m);
   if (!check.allowed) { showToast(check.motivo || 'Você não possui permissão para acessar este módulo.'); return; }
-  if (m.link && m.link.trim()) { window.open(m.link, '_blank', 'noopener,noreferrer'); }
+  if (m.link && m.link.trim()) { window.open(safeUrl(m.link), '_blank', 'noopener,noreferrer'); }
   else { showToast(isAdmin() ? 'Nenhum link configurado — adicione em Configurações' : 'Link ainda não configurado'); }
 }
 function openModuleLinkById(id, ev) { if (ev) ev.stopPropagation(); const m = state.modules.find(x=>x.id===id); if (m) openModuleLink(m); }
@@ -195,16 +195,16 @@ function renderQuickAccess() {
     const check = moduleAccessCheck(m);
     const bloqueado = !check.allowed;
     return `
-    <button class="card module-card" onclick="${bloqueado ? `showToast('${(check.motivo || 'Você não possui permissão para acessar este módulo.').replace(/'/g, "\\'")}')` : `openModuleModal(${m.id})`}" style="${bloqueado ? 'opacity:.55;' : ''}">
+    <button class="card module-card" onclick="${bloqueado ? `showToast(${jsArg(check.motivo || 'Você não possui permissão para acessar este módulo.')})` : `openModuleModal(${m.id})`}" style="${bloqueado ? 'opacity:.55;' : ''}">
       <div class="module-icon ${(m.locked||bloqueado)?'locked':''}">${(m.locked||bloqueado) ? '<i class="fa-solid fa-lock"></i>' : icon(m.icon)}</div>
       <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(m.name)}</div>
       <div style="font-size:12px; color:var(--text-2); margin-bottom:10px; line-height:1.4;">${esc(m.desc)}</div>
       <span class="status-pill">${esc(m.status)}</span>
       ${m.acesso ? `<span class="access-tag">Acesso: ${esc(m.acesso)}</span>` : (m.setor ? `<span class="access-tag">Setor: ${esc(m.setor)}</span>` : '')}
       ${bloqueado
-        ? `<div class="open-btn" style="color:var(--text-3);" onclick="event.stopPropagation(); showToast('${(check.motivo || 'Você não possui permissão para acessar este módulo.').replace(/'/g, "\\'")}')">Sem permissão <i class="fa-solid fa-lock" style="font-size:11px;"></i></div>`
+        ? `<div class="open-btn" style="color:var(--text-3);" onclick="event.stopPropagation(); showToast(${jsArg(check.motivo || 'Você não possui permissão para acessar este módulo.')})">Sem permissão <i class="fa-solid fa-lock" style="font-size:11px;"></i></div>`
         : (m.link && m.link.trim()
-          ? `<a class="open-btn" href="${esc(m.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir <i class="fa-solid fa-arrow-right"></i></a>`
+          ? `<a class="open-btn" href="${esc(safeUrl(m.link))}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir <i class="fa-solid fa-arrow-right"></i></a>`
           : `<div class="open-btn" onclick="openModuleLinkById(${m.id}, event)">Abrir <i class="fa-solid fa-arrow-right"></i> <span class="link-missing-dot" title="Link não configurado"></span></div>`)}
     </button>
   `;}).join('');
@@ -356,7 +356,7 @@ function renderLinks() {
   const el = document.getElementById('linksGrid');
   if (!el) return;
   el.innerHTML = state.links.map(l =>
-    `<a class="link-chip" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.nome)}</a>`
+    `<a class="link-chip" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.nome)}</a>`
   ).join('');
 }
 function toggleFav(nome) {
@@ -375,12 +375,12 @@ function renderTools() {
         <div style="font-size:11px; color:var(--text-3);">${esc(f.desc)}</div>
     `;
     const clickable = hasUrl
-      ? `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit; flex:1; min-width:0;">${body}</a>`
-      : `<div style="flex:1; min-width:0; cursor:pointer;" onclick="showToast('Abrindo ${esc(f.nome).replace(/'/g,"&#39;")}...')">${body}</div>`;
+      ? `<a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; color:inherit; flex:1; min-width:0;">${body}</a>`
+      : `<div style="flex:1; min-width:0; cursor:pointer;" onclick="showToast(${jsArg('Abrindo ' + f.nome + '...')})">${body}</div>`;
     return `
     <div class="card" style="padding:14px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
       ${clickable}
-      <button class="congrats-btn" style="border-color:${fav?'var(--brass)':'var(--border)'};" onclick="toggleFav('${esc(f.nome)}')">
+      <button class="congrats-btn" style="border-color:${fav?'var(--brass)':'var(--border)'};" onclick="toggleFav(${jsArg(f.nome)})">
         <i class="fa-solid fa-star" style="font-size:13px; color:${fav?'var(--brass)':'var(--text-3)'};"></i>
       </button>
     </div>`;
@@ -441,7 +441,7 @@ function renderModal() {
         <div style="font-size:13px; color:var(--text-2); line-height:1.5; margin-bottom:${m.acesso?8:18}px;">${esc(m.desc)}</div>
         ${m.acesso ? `<div style="font-size:11.5px; color:var(--text-3); margin-bottom:18px;">Acesso: ${esc(m.acesso)}</div>` : ''}
         ${m.kind === 'module' && m.link && m.link.trim()
-          ? `<a class="btn-brass" href="${esc(m.link)}" target="_blank" rel="noopener noreferrer" onclick="closeModal()">Entrar no módulo <i class="fa-solid fa-arrow-right"></i></a>`
+          ? `<a class="btn-brass" href="${esc(safeUrl(m.link))}" target="_blank" rel="noopener noreferrer" onclick="closeModal()">Entrar no módulo <i class="fa-solid fa-arrow-right"></i></a>`
           : `<button class="btn-brass" onclick="onModalAction()">Entrar no módulo <i class="fa-solid fa-arrow-right"></i></button>`}
       </div>
     </div>
@@ -470,7 +470,11 @@ document.getElementById('teamFileInput').addEventListener('change', function(e) 
   reader.readAsDataURL(file);
 });
 async function uploadParaBucket(bucket, file) {
-  const caminho = `${Date.now()}-${uid('f')}-${file.name}`.replace(/\s+/g, '_');
+  // O Storage do Supabase recusa chaves com acento e alguns símbolos
+  // ("Invalid key") — "Apresentação.pdf" falhava no upload. Remove os
+  // acentos e troca o resto por "_", mantendo o nome legível.
+  const nomeSeguro = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_');
+  const caminho = `${Date.now()}-${uid('f')}-${nomeSeguro}`;
   const { error } = await supabaseClient.storage.from(bucket).upload(caminho, file);
   if (error) throw error;
   const { data } = supabaseClient.storage.from(bucket).getPublicUrl(caminho);

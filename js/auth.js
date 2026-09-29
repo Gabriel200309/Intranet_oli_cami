@@ -256,7 +256,30 @@ async function logout() {
 }
 function uid(prefix) { return prefix + Date.now() + Math.floor(Math.random()*1000); }
 function currency(v) { return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }); }
-function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+/* Argumento de string para handlers inline (onclick="f(${jsArg(x)})"): gera
+   um literal JS entre aspas duplas (JSON) e escapa para HTML — o navegador
+   desfaz o escape HTML antes de rodar o JS, então apóstrofo, aspas ou barra
+   invertida no texto (ex.: um setor "D'Ávila") não quebram nem injetam
+   código no atributo. */
+function jsArg(s) { return esc(JSON.stringify(String(s==null?'':s))); }
+/* Só deixa passar URLs com esquema seguro (http/https/mailto/tel, blob:,
+   alguns data: de arquivo e caminhos relativos). Qualquer outro esquema — em especial
+   "javascript:" e "data:text/html" — vira about:blank, para que um link
+   cadastrado (link do ChatGuru, módulo, material de curso...) nunca execute
+   código na página de quem clica. Sempre combine com esc() no HTML. */
+function safeUrl(u) {
+  const url = String(u==null?'':u).trim();
+  if (!url) return '';
+  const semControle = url.replace(/[\u0000-\u0020\u007f]/g, '').toLowerCase();
+  const m = semControle.match(/^([a-z][a-z0-9+.-]*):/);
+  if (!m) return url; // relativo (/, ./, #, ?...) — sem esquema, não executa nada
+  if (['http', 'https', 'mailto', 'tel', 'blob'].includes(m[1])) return url;
+  // data: só para os tipos de arquivo que o próprio portal gera no modo
+  // demonstração (FileReader) — nunca HTML/SVG/script.
+  if (m[1] === 'data' && /^data:(image\/(png|jpe?g|gif|webp|bmp)|video\/|audio\/|application\/(pdf|octet-stream|zip|msword|vnd\.)|text\/(plain|csv))/.test(semControle)) return url;
+  return 'about:blank';
+}
 function normalizeUrl(u) {
   if (!u) return '';
   u = u.trim();

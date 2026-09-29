@@ -146,8 +146,8 @@ function renderAdminSetores(c) {
       <div class="admin-list-item">
         <div style="font-size:13px; font-weight:700;"><i class="fa-solid fa-building" style="color:var(--text-3); margin-right:8px;"></i>${esc(s)}</div>
         <div style="display:flex; gap:6px;">
-          <button class="admin-edit-btn" onclick="editSetor('${esc(s)}')"><i class="fa-solid fa-pen" style="font-size:12px;"></i></button>
-          <button class="admin-del-btn" onclick="removeSetor('${esc(s)}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+          <button class="admin-edit-btn" onclick="editSetor(${jsArg(s)})"><i class="fa-solid fa-pen" style="font-size:12px;"></i></button>
+          <button class="admin-del-btn" onclick="removeSetor(${jsArg(s)})"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
         </div>
       </div>
     `).join('')}
@@ -324,7 +324,7 @@ function renderAdminFuncionarios(c) {
       </div>
       <div class="form-field"><label>Nome completo</label><input id="f-nome" value="${esc(e?e.nome:'')}" placeholder="Ex: Ana Souza"></div>
       <div class="form-field"><label>Número (matrícula)</label><input id="f-numero" value="${esc(e?e.numero:'')}" placeholder="Ex: 0012"></div>
-      <div class="form-field"><label>Setor</label><select id="f-setor">${state.setores.map(s=>`<option ${e&&e.setor===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="form-field"><label>Setor</label><select id="f-setor">${state.setores.map(s=>`<option value="${esc(s)}" ${e&&e.setor===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div>
       <div class="form-field"><label>Equipe</label>
         <select id="f-equipe">
           <option value="">Sem equipe</option>
@@ -626,7 +626,7 @@ function renderAdminMetas(c) {
         <select id="mt-status">${METAS_STATUS.map(s => `<option ${m&&m.status===s?'selected':''}>${s}</option>`).join('')}</select>
       </div>
       <div class="form-field" id="mt-setor-field" style="display:${tipoAtual!=='Geral'?'flex':'none'};"><label>Setor</label>
-        <select id="mt-setor">${state.setores.map(s => `<option value="${s}" ${m&&m.setor===s?'selected':''}>${s}</option>`).join('')}</select>
+        <select id="mt-setor">${state.setores.map(s => `<option value="${esc(s)}" ${m&&m.setor===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
       </div>
       <div class="form-field" id="mt-carteira-field" style="display:${tipoAtual==='Carteira'?'flex':'none'};"><label>Carteira</label>
         <div style="display:flex; gap:6px;">
@@ -1162,7 +1162,7 @@ function renderAdminPermissoes(c) {
               </td>
               ${PERMISSOES_SETOR_KEYS.map(p => `
                 <td style="text-align:center; padding:8px 10px; border-bottom:1px solid var(--border);">
-                  <input type="checkbox" ${state.permissoesSetor[setor] && state.permissoesSetor[setor][p.key] ? 'checked' : ''} onchange="togglePermissaoSetor('${setor}','${p.key}', this.checked)" style="width:16px; height:16px; cursor:pointer;">
+                  <input type="checkbox" ${state.permissoesSetor[setor] && state.permissoesSetor[setor][p.key] ? 'checked' : ''} onchange="togglePermissaoSetor(${jsArg(setor)},'${p.key}', this.checked)" style="width:16px; height:16px; cursor:pointer;">
                 </td>
               `).join('')}
             </tr>
@@ -1179,7 +1179,7 @@ function renderAdminPermissoes(c) {
         <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:6px;">
           ${state.employees.map(e => `
             <label style="display:flex; align-items:center; gap:8px; font-size:12px; padding:5px 8px; border:1px solid var(--border); border-radius:8px; cursor:pointer;">
-              <input type="checkbox" ${(state.gestoresSetor[setor]||[]).includes(e.id) ? 'checked' : ''} onchange="toggleGestorSetor('${setor}','${e.id}', this.checked)" style="width:14px; height:14px;">
+              <input type="checkbox" ${(state.gestoresSetor[setor]||[]).includes(e.id) ? 'checked' : ''} onchange="toggleGestorSetor(${jsArg(setor)},'${e.id}', this.checked)" style="width:14px; height:14px;">
               ${esc(e.nome)} <span style="color:var(--text-3);">— ${esc(e.setor)}</span>
             </label>
           `).join('')}
@@ -1345,7 +1345,7 @@ function renderAdminCursos(c) {
       <div class="form-field" style="grid-column:span 2;">
         <label>Foto do palestrante</label>
         <div style="display:flex; align-items:center; gap:12px;">
-          <img id="crs-foto-preview" src="${p.foto||''}" style="width:52px; height:52px; border-radius:12px; object-fit:cover; background:var(--surface-2); ${p.foto?'':'display:none;'}">
+          <img id="crs-foto-preview" src="${esc(safeUrl(p.foto))}" style="width:52px; height:52px; border-radius:12px; object-fit:cover; background:var(--surface-2); ${p.foto?'':'display:none;'}">
           <button type="button" class="admin-edit-btn" onclick="triggerCursoUpload('foto')"><i class="fa-solid fa-upload"></i> Enviar foto</button>
         </div>
       </div>
@@ -1383,7 +1383,7 @@ async function submitCurso() {
     nome: val('crs-nome'), tema: val('crs-tema'), status: val('crs-status'), descricao: val('crs-descricao'),
     palestrante: {
       nome: val('crs-p-nome'), cargo: val('crs-p-cargo'), empresa: val('crs-p-empresa'), contato: val('crs-p-contato'),
-      linkedin: val('crs-p-linkedin'), instagram: val('crs-p-instagram'), website: val('crs-p-website'),
+      linkedin: normalizeUrl(val('crs-p-linkedin')), instagram: normalizeUrl(val('crs-p-instagram')), website: normalizeUrl(val('crs-p-website')),
       foto: fotoTemp !== undefined ? fotoTemp : (ed ? (state.cursos.find(x=>x.id===ed).palestrante.foto) : ''),
     },
   };
