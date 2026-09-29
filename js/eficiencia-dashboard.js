@@ -108,6 +108,17 @@ function podeGerenciarAtendimentoChat(a) {
   if (!emp) return false;
   return isAdmin() || a.registradoPorId === emp.id || a.colaboradorId === emp.id || isGestorDoSetor(a.setor);
 }
+/* Excluir e reatribuir NÃO valem para o colaborador responsável: a policy
+   de DELETE não o inclui, e a de UPDATE exige que o registro continue
+   visível para quem edita (with check colaborador_id = auth.uid()) — ao
+   passar o atendimento para outra pessoa, o banco recusava ("violates
+   row-level security policy"), e a exclusão afetava 0 linhas (o card
+   sumia da tela e voltava ao recarregar). */
+function podeAdministrarAtendimentoChat(a) {
+  const emp = getEffectiveEmployee();
+  if (!emp) return false;
+  return isAdmin() || a.registradoPorId === emp.id || isGestorDoSetor(a.setor);
+}
 function eventosDoAtendimento(atendimentoId) {
   return state.atendimentoChatEventos.filter(e => e.atendimentoId === atendimentoId)
     .slice().sort((x, y) => new Date(x.ocorridoEm) - new Date(y.ocorridoEm));
@@ -653,7 +664,7 @@ function onAtColaboradorChange() {
 async function submitAtendimentoChat() {
   if (!isAdmin()) { showToast('Só administradores podem registrar atendimentos.'); return; }
   const colaboradorId = val('at-colaborador'), cliente = val('at-cliente'), inicioBruto = val('at-inicio');
-  const linkChatguru = val('at-link-chatguru').trim();
+  const linkChatguru = normalizeUrl(val('at-link-chatguru'));
   const equipeId = val('at-equipe');
   const colaboradorEmp = state.employees.find(e => e.id === colaboradorId);
   if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
@@ -914,8 +925,9 @@ async function finalizarAtendimentoChat(id, quandoIso) {
 }
 async function removerAtendimentoChat(id) {
   if (supabaseClient) {
-    const { error } = await supabaseClient.from('atendimentos_chat').delete().eq('id', id);
+    const { data, error } = await supabaseClient.from('atendimentos_chat').delete().eq('id', id).select('id');
     if (error) { showToast('Não foi possível excluir: ' + error.message); return; }
+    if (!data || !data.length) { showToast('Você não tem permissão para excluir este atendimento.'); return; }
   }
   state.atendimentosChat = state.atendimentosChat.filter(a => a.id !== id);
   if (state.atendimentoChatAtivoId === id) state.atendimentoChatAtivoId = null;
@@ -964,7 +976,7 @@ function toggleEditarLinkChatguru() {
   renderEficienciaView();
 }
 async function salvarLinkChatguru(id) {
-  const link = val('link-chatguru-edit').trim();
+  const link = normalizeUrl(val('link-chatguru-edit'));
   if (!supabaseClient) {
     const a = state.atendimentosChat.find(x => x.id === id);
     if (a) a.linkChatguru = link;
@@ -1100,7 +1112,7 @@ function renderAtendimentoChatDetalhe() {
       </div>
       <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px;">
         <strong>Conversa no ChatGuru:</strong>
-        ${a.linkChatguru ? `<a href="${esc(a.linkChatguru)}" target="_blank" rel="noopener noreferrer" class="open-btn" style="margin-top:0; display:inline-flex;"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir conversa</a>` : `<span style="color:var(--text-3);">Nenhum link cadastrado</span>`}
+        ${a.linkChatguru ? `<a href="${esc(safeUrl(a.linkChatguru))}" target="_blank" rel="noopener noreferrer" class="open-btn" style="margin-top:0; display:inline-flex;"><i class="fa-solid fa-arrow-up-right-from-square"></i> Abrir conversa</a>` : `<span style="color:var(--text-3);">Nenhum link cadastrado</span>`}
         ${podeGerenciar ? `<button class="admin-edit-btn" title="${a.linkChatguru ? 'Editar link' : 'Adicionar link'}" style="width:26px; height:26px;" onclick="toggleEditarLinkChatguru()"><i class="fa-solid fa-pen" style="font-size:11px;"></i></button>` : ''}
       </div>
       ${state.editarLinkChatguruAberto ? `
@@ -1118,7 +1130,7 @@ function renderAtendimentoChatDetalhe() {
           ${a.status === 'aguardando_terceiro'
             ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="retomarAtendimentoChat('${a.id}')"><i class="fa-solid fa-play"></i> Retomar atendimento</button>`
             : (!a.finalizadoEm ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="marcarAguardandoAtendimento('${a.id}')"><i class="fa-solid fa-pause"></i> Marcar como Aguardando</button>` : '')}
-          <button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>
+          ${podeAdministrarAtendimentoChat(a) ? `<button class="admin-cancel-btn" style="margin-top:0;" onclick="toggleReatribuirAtendimentoChat()"><i class="fa-solid fa-user-pen"></i> Reatribuir</button>` : ''}
         </div>
         ${state.enviarAlertaAtendimentoChatAberto ? `
           <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
@@ -1420,7 +1432,7 @@ function renderEficienciaView() {
             ${!a.alertaEnviadoEm ? `<button class="admin-edit-btn" title="Enviar alerta ao grupo" onclick="abrirAtendimentoParaAlerta('${a.id}')"><i class="fa-solid fa-bullhorn" style="font-size:12px;"></i></button>` : ''}
             ${!a.primeiraRespostaEm ? `<button class="admin-edit-btn" title="Registrar resposta" onclick="abrirAtendimentoParaResposta('${a.id}')"><i class="fa-solid fa-reply" style="font-size:12px;"></i></button>` : ''}
             ${!a.finalizadoEm ? `<button class="admin-edit-btn" title="Encerrar atendimento" onclick="abrirAtendimentoParaEncerrar('${a.id}')"><i class="fa-solid fa-flag-checkered" style="font-size:12px;"></i></button>` : ''}
-            <button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>
+            ${podeAdministrarAtendimentoChat(a) ? `<button class="admin-del-btn" title="Remover" onclick="removerAtendimentoChat('${a.id}')"><i class="fa-solid fa-trash" style="font-size:12px;"></i></button>` : ''}
           </div>` : ''}
         </div>
       `;}).join('') : `<div style="padding:24px; text-align:center; color:var(--text-3); font-size:13px;">Nenhum atendimento registrado no período/filtro selecionado.</div>`}

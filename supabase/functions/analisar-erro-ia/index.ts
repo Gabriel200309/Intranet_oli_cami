@@ -22,6 +22,38 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Qualquer funcionário logado pode chamar esta função, e o payload vai
+// inteiro para o banco e para o prompt da IA (custo por token). Limita o
+// tamanho de cada campo para que um relato gigante (ou malicioso) não
+// estoure o banco nem a conta da API.
+const MAX_TEXTO = 10_000;
+const MAX_ITENS = 50;
+function cortar(v: unknown, max = MAX_TEXTO) {
+  if (v == null) return v;
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  return s.length > max ? s.slice(0, max) + "… [truncado]" : s;
+}
+function limitarPayload(body: any) {
+  const b = body && typeof body === "object" ? body : {};
+  const lista = (v: unknown) => (Array.isArray(v) ? v.slice(0, MAX_ITENS) : []);
+  return {
+    ...b,
+    nomeUsuario: cortar(b.nomeUsuario, 200),
+    setor: cortar(b.setor, 200),
+    sistemaModulo: cortar(b.sistemaModulo, 200),
+    titulo: cortar(b.titulo, 500),
+    descricao: cortar(b.descricao),
+    prioridade: cortar(b.prioridade, 50),
+    dataHora: cortar(b.dataHora, 100),
+    urlPagina: cortar(b.urlPagina, 2000),
+    stackTrace: cortar(b.stackTrace),
+    consoleLogs: lista(b.consoleLogs).map((l: unknown) => cortar(l, 2000)),
+    jsErrors: lista(b.jsErrors).map((e: any) => ({ mensagem: cortar(e?.mensagem, 2000), stack: cortar(e?.stack, 4000) })),
+    requestInfo: b.requestInfo && typeof b.requestInfo === "object" && JSON.stringify(b.requestInfo).length <= MAX_TEXTO ? b.requestInfo : null,
+    anexos: lista(b.anexos).map((a: any) => ({ nome: cortar(a?.nome, 300), tipo: cortar(a?.tipo, 100), tamanhoBytes: Number(a?.tamanhoBytes) || 0 })),
+  };
+}
+
 function montarPrompt(payload: any) {
   const {
     nomeUsuario, setor, sistemaModulo, titulo, descricao, dataHora, urlPagina,
@@ -130,7 +162,11 @@ async function analisarComAnthropic(payload: any) {
     solucaoSugerida: json.solucaoSugerida || "",
     arquivosAfetados: Array.isArray(json.arquivosAfetados) ? json.arquivosAfetados : [],
     codigoProposto: json.codigoProposto || null,
-    grauConfianca: typeof json.grauConfianca === "number" ? json.grauConfianca : null,
+    // grau_confianca é "int" no banco: um 87.5 vindo do modelo fazia o insert
+    // da análise falhar. Arredonda e limita a 0–100.
+    grauConfianca: typeof json.grauConfianca === "number" && Number.isFinite(json.grauConfianca)
+      ? Math.min(100, Math.max(0, Math.round(json.grauConfianca)))
+      : null,
     relatorioTecnico: json.relatorioTecnico || texto,
   };
 }
@@ -155,7 +191,7 @@ Deno.serve(async (req) => {
     }
     const funcionarioId = userData.user.id;
 
-    const body = await req.json();
+    const body = limitarPayload(await req.json());
     if (!body.titulo || !body.descricao) {
       return new Response(JSON.stringify({ erro: "Título e descrição são obrigatórios." }), { status: 400, headers: CORS_HEADERS });
     }
@@ -188,7 +224,7 @@ Deno.serve(async (req) => {
 
     try {
       const resultado = await analisarComAnthropic({ ...body, nomeUsuario: body.nomeUsuario });
-      await supabaseAdmin.from("analises_ia").insert({
+      const { error: erroAnaliseInsert } = await supabaseAdmin.from("analises_ia").insert({
         relato_id: relato.id,
         provider: resultado.provider,
         modelo: resultado.modelo,
@@ -200,6 +236,9 @@ Deno.serve(async (req) => {
         grau_confianca: resultado.grauConfianca,
         relatorio_tecnico: resultado.relatorioTecnico,
       });
+      // Antes o erro deste insert era ignorado e o relato ficava "analisado"
+      // sem nenhuma análise gravada — agora cai no catch (status erro_analise).
+      if (erroAnaliseInsert) throw erroAnaliseInsert;
       await supabaseAdmin.from("bug_reports").update({ status: "analisado" }).eq("id", relato.id);
 
       return new Response(JSON.stringify({
