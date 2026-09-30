@@ -10,13 +10,25 @@
 -- ============================================================================
 
 -- Permissões padrão por setor (mesmos valores do protótipo original).
-insert into permissoes_setor (setor, acesso_acordos, acesso_juridico, acesso_rh, acesso_financeiro, ver_metas_geral, ver_sinalizacoes_todas, ver_funcionarios_todos) values
-  ('Acordos',    true,  false, false, false, false, false, false),
-  ('Jurídico',   false, true,  false, false, false, false, false),
-  ('RH',         false, false, true,  false, false, true,  true),
-  ('Financeiro', false, false, false, true,  true,  false, false),
-  ('TI',         false, false, false, false, false, false, false),
-  ('Diretoria',  true,  true,  true,  true,  true,  true,  true);
+insert into permissoes_setor (setor, acesso_acordos, acesso_juridico, acesso_rh, acesso_financeiro, ver_metas_geral, ver_sinalizacoes_todas, ver_funcionarios_todos, ver_clientes) values
+  ('Acordos',    true,  false, false, false, false, false, false, true),
+  ('Jurídico',   false, true,  false, false, false, false, false, true),
+  ('RH',         false, false, true,  false, false, true,  true,  false),
+  ('Financeiro', false, false, false, true,  true,  false, false, true),
+  ('TI',         false, false, false, false, false, false, false, false),
+  ('Diretoria',  true,  true,  true,  true,  true,  true,  true,  true)
+-- A migração 0029 já cria uma linha (tudo desmarcado) para cada setor: aqui
+-- só se preenchem os valores padrão nas linhas que ainda não têm NENHUMA
+-- permissão marcada — rodar o seed de novo nunca desfaz o que o
+-- administrador configurou depois.
+on conflict (setor) do update set
+  acesso_acordos = excluded.acesso_acordos, acesso_juridico = excluded.acesso_juridico,
+  acesso_rh = excluded.acesso_rh, acesso_financeiro = excluded.acesso_financeiro,
+  ver_metas_geral = excluded.ver_metas_geral, ver_sinalizacoes_todas = excluded.ver_sinalizacoes_todas,
+  ver_funcionarios_todos = excluded.ver_funcionarios_todos, ver_clientes = excluded.ver_clientes
+where not (permissoes_setor.acesso_acordos or permissoes_setor.acesso_juridico or permissoes_setor.acesso_rh
+  or permissoes_setor.acesso_financeiro or permissoes_setor.ver_metas_geral or permissoes_setor.ver_sinalizacoes_todas
+  or permissoes_setor.ver_funcionarios_todos or permissoes_setor.ver_clientes);
 
 -- Classificações padrão de sinalização.
 insert into classificacoes_sinalizacao (nome, cor) values

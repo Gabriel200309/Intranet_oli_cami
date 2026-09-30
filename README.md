@@ -6,7 +6,7 @@ Aplicação client-side em HTML/CSS/JavaScript puro (sem build, sem framework) q
 
 Migrations, buckets de Storage (`cursos`, `avatares`) e as Edge Functions (`analisar-erro-ia`, `criar-funcionario`) já estão aplicados/publicados no projeto Supabase real. Passos manuais que sobram:
 
-- **Aplicar a migração `supabase/migrations/0028_clientes.sql`** (cole no SQL Editor do Supabase e rode) para ativar o cadastro de Clientes e Prospects. Enquanto ela não for aplicada, a tela de Clientes mostra um aviso ao administrador e o resto do portal continua funcionando normalmente.
+- **Aplicar as migrações `supabase/migrations/0028_clientes.sql` e `0029_permissoes_leitura_propria.sql`**, nessa ordem (cole cada uma no SQL Editor do Supabase e rode). A 0028 ativa o cadastro de Clientes e Prospects; enquanto ela não for aplicada, a tela de Clientes mostra um aviso ao administrador e o resto do portal continua funcionando normalmente. A 0029 deixa cada colaborador ler as permissões do próprio setor (sem ela, a tela de quem não é administrador bloqueia áreas liberadas ao setor, como o painel de Eficiência para gestores) e cria a linha de permissões dos setores novos.
 
 - **Configurar `ANTHROPIC_API_KEY` nos secrets** (`supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`) para a análise automática de erros usar o Claude de verdade — sem isso, "Reportar Erro" continua salvando o relato normalmente, só a análise fica em modo demonstração (a Edge Function avisa isso na própria resposta).
 

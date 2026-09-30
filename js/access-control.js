@@ -85,7 +85,16 @@ function navSectionAccess(label) {
     return { locked: !check.allowed, motivo: check.motivo || 'Este módulo mostra dados financeiros gerais do escritório, disponíveis apenas ao setor Financeiro, Diretoria e administradores.' };
   }
   const mod = getModuleForNavLabel(label);
-  if (!mod) return { locked: false, motivo: '' };
+  if (!mod) {
+    // A RLS de "modulos" esconde o módulo de um setor de quem não tem acesso
+    // a ele — sem o módulo carregado, decide pela permissão do setor (antes
+    // o item ficava liberado e abria a página do setor de outra pessoa).
+    if (SETOR_MODULE_KEY[label]) {
+      const check = moduleAccessCheck({ setor: label, locked: false });
+      return { locked: !check.allowed, motivo: check.motivo };
+    }
+    return { locked: false, motivo: '' };
+  }
   const check = moduleAccessCheck(mod);
   return { locked: !check.allowed, motivo: check.motivo };
 }

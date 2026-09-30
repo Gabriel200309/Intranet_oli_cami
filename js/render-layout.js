@@ -116,7 +116,7 @@ function renderNotifDropdown() {
         <div class="notif-item" style="display:flex; gap:10px; align-items:flex-start; background:${n.lida?'transparent':'var(--surface-2)'}; cursor:pointer;" onclick="marcarNotificacaoLida('${n.id}')">
           <div class="avatar" style="width:28px; height:28px; font-size:10px; flex-shrink:0;">${remetente?esc(initials(remetente.nome)):'?'}</div>
           <div style="flex:1; min-width:0;">
-            <div style="font-weight:700; line-height:1.35;">${textoNotificacao(n)}</div>
+            <div style="font-weight:700; line-height:1.35;">${esc(textoNotificacao(n))}</div>
             <div style="color:var(--text-3); font-size:11px; margin-top:2px;">${tempoRelativo(n.data)}${!n.lida?' · <span style="color:var(--brass); font-weight:700;">nova</span>':''}</div>
           </div>
         </div>

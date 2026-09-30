@@ -168,7 +168,12 @@ begin
     if auth.uid() is not null then
       new.atualizado_por := auth.uid();
     end if;
-    new.criado_por := old.criado_por;
+    -- criado_por não pode ser trocado por outra pessoa, mas pode virar
+    -- NULL: é o que o "on delete set null" faz quando o funcionário que
+    -- cadastrou é excluído (restaurar o id antigo quebraria a exclusão).
+    if new.criado_por is not null then
+      new.criado_por := old.criado_por;
+    end if;
     new.criado_em := old.criado_em;
     new.atualizado_em := now();
     if old.tipo = 'prospect' and new.tipo = 'cliente' then

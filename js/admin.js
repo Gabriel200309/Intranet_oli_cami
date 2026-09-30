@@ -1206,7 +1206,9 @@ async function togglePermissaoSetor(setor, key, checked) {
   showToast('Permissões atualizadas!');
   if (supabaseClient) {
     const coluna = PERMISSAO_SETOR_COLUNA[key];
-    const { error } = await supabaseClient.from('permissoes_setor').update({ [coluna]: checked }).eq('setor', setor);
+    // upsert: um setor criado antes da migração 0029 pode ainda não ter a
+    // linha de permissões — um update simples afetava 0 linhas sem avisar.
+    const { error } = await supabaseClient.from('permissoes_setor').upsert({ setor, [coluna]: checked }, { onConflict: 'setor' });
     if (error) showToast('Não foi possível salvar no banco: ' + error.message);
   }
 }
