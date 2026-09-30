@@ -670,11 +670,12 @@ async function submitAtendimentoChat() {
   if (!colaboradorEmp) { showToast('Selecione o colaborador do atendimento.'); return; }
   const equipeSelecionada = equipeId ? state.equipes.find(eq => eq.id === equipeId) : null;
   const iniciadoEm = (inicioBruto ? new Date(inicioBruto) : new Date()).toISOString();
+  const clienteId = clienteIdPorNome(cliente); // vínculo com o cadastro de clientes (migração 0028), quando o nome bate com um único cliente
   if (!supabaseClient) {
     const novo = {
       id: uid('at'), colaboradorId, colaborador: colaboradorEmp.nome, setor: colaboradorEmp.setor,
       equipeId: equipeId || null, equipe: equipeSelecionada ? equipeSelecionada.nome : '',
-      cliente, linkChatguru, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
+      cliente, clienteId, linkChatguru, status: 'aguardando', iniciadoEm, alertaEnviadoEm: null, primeiraRespostaEm: null,
       resolucao: 'pendente', resolvidoEm: null, finalizadoEm: null, registradoPorId: state.currentUser.id, data: new Date().toISOString(),
     };
     state.atendimentosChat.unshift(novo);
@@ -689,7 +690,14 @@ async function submitAtendimentoChat() {
     equipe_id: equipeId || null, equipe_nome: equipeSelecionada ? equipeSelecionada.nome : null,
     cliente: cliente || null, link_chatguru: linkChatguru || null, iniciado_em: iniciadoEm, registrado_por: state.currentUser.id,
   };
+  if (clienteId) payload.cliente_id = clienteId;
   let { error } = await supabaseClient.from('atendimentos_chat').insert(payload);
+  if (error && colunaAusente(error, 'cliente_id')) {
+    // Migração 0028 ainda não aplicada: registra sem o vínculo com o
+    // cadastro de clientes (o nome digitado continua salvo em "cliente").
+    delete payload.cliente_id;
+    ({ error } = await supabaseClient.from('atendimentos_chat').insert(payload));
+  }
   let linkNaoSalvo = false, equipeNaoSalva = false;
   if (error && (colunaAusente(error, 'equipe_id') || colunaAusente(error, 'equipe_nome'))) {
     // Campos opcionais (migração 0023 ainda não aplicada no banco): registra
@@ -1103,6 +1111,7 @@ function renderAtendimentoChatDetalhe() {
         ATENDIMENTO${referencias.length ? ' · <span style="color:var(--brass);">⭐ Referência/bônus</span>' : ''}
       </div>
       <div style="font-size:20px; font-weight:800;">${esc(a.cliente || 'Cliente não identificado')}</div>
+      ${clienteDoAtendimento(a) ? `<button class="open-btn" style="margin-top:6px;" onclick="abrirCliente(${jsArg(clienteDoAtendimento(a).id)})"><i class="fa-solid fa-address-book"></i> Ver ficha do cliente</button>` : ''}
       <div style="margin-top:8px;"><span class="status-pill" style="background:${statusInfo.cor}22; color:${statusInfo.cor};">${esc(statusInfo.label)}</span></div>
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-top:18px; font-size:12.5px; color:var(--text-2); line-height:1.8;">
         <div><strong>Colaborador:</strong> ${esc(a.colaborador || '—')}</div>
@@ -1399,7 +1408,7 @@ function renderEficienciaView() {
               ${state.equipes.map(eq => `<option value="${eq.id}" ${eq.id === equipePadraoNovoAtendimento ? 'selected' : ''}>${esc(eq.nome)}</option>`).join('')}
             </select>
           </div>
-          <div class="form-field"><label>Cliente <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-cliente" placeholder="Nome do cliente atendido"></div>
+          <div class="form-field"><label>Cliente <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-cliente" list="dl-clientes-at" placeholder="Nome do cliente atendido">${datalistClientesHTML('dl-clientes-at')}<span style="font-size:10.5px; color:var(--text-3);">Escolha um nome da lista para vincular à ficha do cliente.</span></div>
           <div class="form-field"><label>Início do atendimento</label><input id="at-inicio" type="datetime-local" value="${agoraParaDatetimeLocal()}"></div>
           <div class="form-field" style="grid-column:span 2;"><label>Link do ChatGuru <span style="font-weight:400; color:var(--text-3);">(opcional)</span></label><input id="at-link-chatguru" placeholder="https://app.chatguru.app/..."></div>
         </div>

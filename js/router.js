@@ -466,6 +466,7 @@ function renderContentView() {
   else if (v === "sinalizacoes") renderSinalizacoesView();
   else if (v === "eficiencia") renderEficienciaView();
   else if (v === "computadores") renderComputadoresView();
+  else if (v === "clientes") renderClientesView();
   else if (v === "reportarErro") renderReportarErroView();
   else if (v === "manual") renderManualView();
   else if (typeof v === "string" && v.indexOf("nav_") === 0) renderNavSectionView(v);

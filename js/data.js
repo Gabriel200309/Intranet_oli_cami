@@ -34,6 +34,7 @@ const NAV = [
 /* Seções extras — Calculadora, Chat, Sinalizações e Reportar Erro ficam
    destacadas em um grupo separado no menu, abaixo da navegação principal. */
 const NAV_EXTRA = [
+  { icon: "client", label: "Clientes", view: "clientes" },
   { icon: "calc", label: "Calculadora", view: "calculadora" },
   { icon: "chat", label: "Chat", view: "chat" },
   { icon: "target", label: "Metas", view: "metas" },
@@ -151,6 +152,19 @@ const CARTEIRAS_SEED = [
   { id: "cw1", nome: "Carteira Banco Alfa" },
   { id: "cw2", nome: "Carteira Financeira Sul" },
   { id: "cw3", nome: "Carteira Varejo XPTO" },
+];
+/* Clientes e prospects de exemplo (modo local, sem Supabase). Os nomes
+   batem com clientes da pauta de audiências de exemplo, para a ficha do
+   cliente mostrar a correspondência por nome. */
+const ETIQUETAS_CLIENTE_SEED = [
+  { id: "et1", nome: "VIP", cor: "#B4881F" },
+  { id: "et2", nome: "Renegociação bancária", cor: "#2E6DB4" },
+  { id: "et3", nome: "Inadimplente", cor: "#A73F32" },
+];
+const CLIENTES_SEED = [
+  { id: "cli1", tipo: "cliente", nome: "Empresa Rota Log. Ltda", pessoa: "juridica", documento: "11222333000181", email: "financeiro@rotalog.com.br", telefone: "(31) 3333-0101", endereco: "Av. Amazonas, 1000 — Belo Horizonte/MG", origem: "Indicação", interesse: "", proximoContato: null, carteiraId: "cw1", responsavelId: "e2", etiquetaIds: ["et1", "et2"], linkAdvbox: "", linkChatguru: "", linkCrm: "", linkPasta: "", observacoes: "Contato preferencial: diretor financeiro.", convertidoEm: "2026-06-10T13:00:00.000Z", criadoPor: "e2", criadoEm: "2026-05-20T13:00:00.000Z", atualizadoEm: "2026-06-10T13:00:00.000Z" },
+  { id: "cli2", tipo: "cliente", nome: "Marcos Vinícius Souza", pessoa: "fisica", documento: "52998224725", email: "marcos.souza@email.com", telefone: "(31) 98888-1234", endereco: "Rua da Bahia, 50 — Belo Horizonte/MG", origem: "Site", interesse: "", proximoContato: null, carteiraId: "cw2", responsavelId: "e1", etiquetaIds: ["et2"], linkAdvbox: "", linkChatguru: "", linkCrm: "", linkPasta: "", observacoes: "", convertidoEm: null, criadoPor: "e1", criadoEm: "2026-07-02T13:00:00.000Z", atualizadoEm: "2026-07-02T13:00:00.000Z" },
+  { id: "cli3", tipo: "prospect", nome: "Padaria Pão Dourado", pessoa: "juridica", documento: "", email: "", telefone: "(31) 97777-4321", endereco: "", origem: "CRM comercial", interesse: "Renegociação de dívidas com fornecedores", proximoContato: "2026-09-25", carteiraId: null, responsavelId: "e3", etiquetaIds: [], linkAdvbox: "", linkChatguru: "", linkCrm: "", linkPasta: "", observacoes: "", convertidoEm: null, criadoPor: "e3", criadoEm: "2026-09-15T13:00:00.000Z", atualizadoEm: "2026-09-15T13:00:00.000Z" },
 ];
 const METAS_TIPOS = ["Geral", "Setor", "Carteira"];
 const METAS_STATUS = ["Em andamento", "Atingida", "Não atingida", "Pausada"];
@@ -394,14 +408,15 @@ const PERMISSOES_SETOR_KEYS = [
   { key: "verMetasGeral", label: "Ver meta geral do escritório", desc: "Ver o total consolidado (financeiro) de todos os setores, não só o próprio." },
   { key: "verSinalizacoesTodas", label: "Ver sinalizações de todos os setores", desc: "Ver sinalizações de colaboradores de qualquer setor, não só do próprio." },
   { key: "verFuncionariosTodos", label: "Ver funcionários de todos os setores", desc: "Ver o quadro completo de funcionários, não só os do próprio setor." },
+  { key: "verClientes", label: "Ver e editar clientes", desc: "Acessar o cadastro de Clientes e Prospects (ver, cadastrar e editar). O responsável por um cliente sempre vê esse cliente, mesmo sem esta permissão." },
 ];
 const PERMISSOES_SETOR_SEED = {
-  Acordos:    { acessoAcordos: true,  acessoJuridico: false, acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false },
-  Jurídico:   { acessoAcordos: false, acessoJuridico: true,  acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false },
-  RH:         { acessoAcordos: false, acessoJuridico: false, acessoRH: true,  acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: true,  verFuncionariosTodos: true  },
-  Financeiro: { acessoAcordos: false, acessoJuridico: false, acessoRH: false, acessoFinanceiro: true,  verMetasGeral: true,  verSinalizacoesTodas: false, verFuncionariosTodos: false },
-  TI:         { acessoAcordos: false, acessoJuridico: false, acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false },
-  Diretoria:  { acessoAcordos: true,  acessoJuridico: true,  acessoRH: true,  acessoFinanceiro: true,  verMetasGeral: true,  verSinalizacoesTodas: true,  verFuncionariosTodos: true  },
+  Acordos:    { acessoAcordos: true,  acessoJuridico: false, acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false, verClientes: true },
+  Jurídico:   { acessoAcordos: false, acessoJuridico: true,  acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false, verClientes: true },
+  RH:         { acessoAcordos: false, acessoJuridico: false, acessoRH: true,  acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: true,  verFuncionariosTodos: true, verClientes: false },
+  Financeiro: { acessoAcordos: false, acessoJuridico: false, acessoRH: false, acessoFinanceiro: true,  verMetasGeral: true,  verSinalizacoesTodas: false, verFuncionariosTodos: false, verClientes: true },
+  TI:         { acessoAcordos: false, acessoJuridico: false, acessoRH: false, acessoFinanceiro: false, verMetasGeral: false, verSinalizacoesTodas: false, verFuncionariosTodos: false, verClientes: false },
+  Diretoria:  { acessoAcordos: true,  acessoJuridico: true,  acessoRH: true,  acessoFinanceiro: true,  verMetasGeral: true,  verSinalizacoesTodas: true,  verFuncionariosTodos: true, verClientes: true },
 };
 /* Liga cada painel de setor à chave de permissão correspondente. */
 const SETOR_MODULE_KEY = { "Acordos": "acessoAcordos", "Jurídico": "acessoJuridico", "RH": "acessoRH", "Financeiro": "acessoFinanceiro" };

@@ -56,7 +56,7 @@ async function carregarFerramentas() {
 async function carregarAudiencias() {
   const { data, error } = await supabaseClient.from('audiencias').select('*').eq('data', new Date().toISOString().slice(0,10)).order('hora');
   if (error) { console.error('Erro ao carregar audiências:', error.message); return; }
-  state.audiencias = (data || []).map(a => ({ id: a.id, hora: (a.hora||'').slice(0,5), cliente: a.cliente, advogado: a.advogado || '', status: a.status }));
+  state.audiencias = (data || []).map(a => ({ id: a.id, hora: (a.hora||'').slice(0,5), data: a.data, cliente: a.cliente, clienteId: a.cliente_id || null, advogado: a.advogado || '', status: a.status }));
 }
 
 async function carregarAvisos() {
@@ -126,7 +126,7 @@ async function carregarAtendimentosChat() {
   if (error) { registrarSeMigracaoPendente(error, 'atendimentos_chat (migração 0017)'); console.error('Erro ao carregar atendimentos (chat):', error.message); return; }
   state.atendimentosChat = (data || []).map(a => ({
     id: a.id, colaboradorId: a.colaborador_id, colaborador: a.colaborador_nome || '', setor: a.setor,
-    cliente: a.cliente || '', linkChatguru: a.link_chatguru || '', status: a.status, iniciadoEm: a.iniciado_em,
+    cliente: a.cliente || '', clienteId: a.cliente_id || null, linkChatguru: a.link_chatguru || '', status: a.status, iniciadoEm: a.iniciado_em,
     equipeId: a.equipe_id || null, equipe: a.equipe_nome || '',
     alertaEnviadoEm: a.alerta_enviado_em || null, primeiraRespostaEm: a.primeira_resposta_em || null,
     resolucao: a.resolucao || 'pendente', resolvidoEm: a.resolvido_em || null, finalizadoEm: a.finalizado_em || null,
@@ -142,6 +142,44 @@ async function carregarAtendimentoChatEventos() {
   state.atendimentoChatEventos = (data || []).map(e => ({
     id: e.id, atendimentoId: e.atendimento_id, evento: e.evento, ocorridoEm: e.ocorrido_em, autorId: e.autor_id,
   }));
+}
+
+/* Clientes e prospects (migração 0028) — a RLS já devolve só o que o
+   usuário pode ver. As etiquetas de cada cliente vêm juntas (embed). */
+async function carregarClientes() {
+  const { data, error } = await supabaseClient.from('clientes').select('*, cliente_etiquetas(etiqueta_id)').order('nome');
+  if (error) {
+    // PGRST200 = o embed cliente_etiquetas não existe (tabelas da 0028 ainda não criadas)
+    if (!registrarSeMigracaoPendente(error, 'clientes (migração 0028)') && error.code === 'PGRST200' && !state.migracoesPendentes.includes('clientes (migração 0028)')) state.migracoesPendentes.push('clientes (migração 0028)');
+    console.error('Erro ao carregar clientes:', error.message); state.clientes = []; return;
+  }
+  state.clientes = (data || []).map(c => ({
+    id: c.id, tipo: c.tipo, nome: c.nome, pessoa: c.pessoa, documento: c.documento || '',
+    email: c.email || '', telefone: c.telefone || '', endereco: c.endereco || '',
+    origem: c.origem || '', interesse: c.interesse || '', proximoContato: c.proximo_contato || null,
+    carteiraId: c.carteira_id || null, responsavelId: c.responsavel_id || null,
+    etiquetaIds: (c.cliente_etiquetas || []).map(x => x.etiqueta_id),
+    linkAdvbox: c.link_advbox || '', linkChatguru: c.link_chatguru || '', linkCrm: c.link_crm || '', linkPasta: c.link_pasta || '',
+    observacoes: c.observacoes || '', convertidoEm: c.convertido_em || null,
+    criadoPor: c.criado_por, criadoEm: c.criado_em, atualizadoEm: c.atualizado_em,
+  }));
+}
+
+async function carregarPermissaoClientes() {
+  const { data, error } = await supabaseClient.rpc('fn_pode_ver_clientes');
+  state.permissaoClientesBanco = error ? null : data === true; // null = sem resposta do banco (ex.: migração 0028 pendente)
+}
+
+async function carregarEtiquetasCliente() {
+  const { data, error } = await supabaseClient.from('etiquetas_cliente').select('*').order('nome');
+  if (error) { registrarSeMigracaoPendente(error, 'clientes (migração 0028)'); console.error('Erro ao carregar etiquetas de clientes:', error.message); state.etiquetasCliente = []; return; }
+  state.etiquetasCliente = (data || []).map(e => ({ id: e.id, nome: e.nome, cor: e.cor }));
+}
+
+async function carregarClienteEventos() {
+  const { data, error } = await supabaseClient.from('cliente_eventos').select('*').order('ocorrido_em');
+  if (error) { registrarSeMigracaoPendente(error, 'clientes (migração 0028)'); console.error('Erro ao carregar histórico dos clientes:', error.message); state.clienteEventos = []; return; }
+  state.clienteEventos = (data || []).map(e => ({ id: e.id, clienteId: e.cliente_id, evento: e.evento, ocorridoEm: e.ocorrido_em, autorId: e.autor_id }));
 }
 
 async function carregarSetores() {
@@ -171,9 +209,10 @@ async function carregarPermissoesEGestores() {
         acessoAcordos: p.acesso_acordos, acessoJuridico: p.acesso_juridico, acessoRH: p.acesso_rh,
         acessoFinanceiro: p.acesso_financeiro, verMetasGeral: p.ver_metas_geral,
         verSinalizacoesTodas: p.ver_sinalizacoes_todas, verFuncionariosTodos: p.ver_funcionarios_todos,
+        verClientes: p.ver_clientes === true, // coluna da migração 0028 — ausente (undefined) = sem acesso
       };
     });
-    state.setores.forEach(s => { if (!obj[s]) obj[s] = { acessoAcordos:false, acessoJuridico:false, acessoRH:false, acessoFinanceiro:false, verMetasGeral:false, verSinalizacoesTodas:false, verFuncionariosTodos:false }; });
+    state.setores.forEach(s => { if (!obj[s]) obj[s] = { acessoAcordos:false, acessoJuridico:false, acessoRH:false, acessoFinanceiro:false, verMetasGeral:false, verSinalizacoesTodas:false, verFuncionariosTodos:false, verClientes:false }; });
     state.permissoesSetor = obj;
   }
   if (gestErr) { console.error('Erro ao carregar gestores:', gestErr.message); }
@@ -361,6 +400,7 @@ async function sincronizarDadosSupabase() {
     carregarFuncionarioMes(), carregarParabens(), carregarNotificacoes(),
     carregarAvaliacoesQualidade(), carregarAtendimentosReferencia(), carregarAtendimentosChat(), carregarAtendimentoChatEventos(), carregarEquipes(),
     carregarTiposErroSinalizacao(),
+    carregarClientes(), carregarEtiquetasCliente(), carregarClienteEventos(), carregarPermissaoClientes(),
     carregarComputadores(), carregarManutencoesComputador(), carregarHistoricoComputador(), carregarReservaAtribuicoes(),
   ]);
   await carregarProgressoCursos();
