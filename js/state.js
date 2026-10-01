@@ -67,7 +67,7 @@ const state = {
   /* ---- Painel de Eficiência, Qualidade e Alertas ---- */
   avaliacoesQualidade: [], // { id, colaboradorId, colaborador, setor, periodo, clarezaComunicacao..reclamacoes (0-10), observacoes, avaliadorId, data, atendimentoChatId }
   atendimentosReferencia: [], // { id, colaboradorId, colaborador, setor, titulo, descricao, registradoPorId, data, atendimentoChatId }
-  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, equipeId, equipe, cliente, linkChatguru, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolucao, resolvidoEm, finalizadoEm, registradoPorId, data }
+  atendimentosChat: [], // { id, colaboradorId, colaborador, setor, equipeId, equipe, cliente, clienteId, linkChatguru, status, iniciadoEm, alertaEnviadoEm, primeiraRespostaEm, resolucao, resolvidoEm, finalizadoEm, registradoPorId, data }
   atendimentoChatEventos: [], // { id, atendimentoId, evento, ocorridoEm, autorId } — linha do tempo (histórico append-only) de cada atendimento
   novaAvaliacaoQualidade: false,
   novoAtendimentoReferencia: false,
@@ -86,6 +86,17 @@ const state = {
   editarLinkChatguruAberto: false,
   avaliarAtendimentoChatId: null, // id do atendimento para o qual o formulário de avaliação está aberto (a partir do detalhe)
   vincularReferenciaAtendimentoChatId: null, // id do atendimento para o qual o formulário de referência/bônus está aberto (a partir do detalhe)
+
+  /* ---- Clientes e Prospects (ver js/clientes.js) ---- */
+  clientes: JSON.parse(JSON.stringify(CLIENTES_SEED)), // { id, tipo ('prospect'|'cliente'), nome, pessoa, documento, email, telefone, endereco, origem, interesse, proximoContato, carteiraId, responsavelId, etiquetaIds[], linkAdvbox, linkChatguru, linkCrm, linkPasta, observacoes, convertidoEm, criadoPor, criadoEm, atualizadoEm }
+  etiquetasCliente: JSON.parse(JSON.stringify(ETIQUETAS_CLIENTE_SEED)), // { id, nome, cor }
+  clienteEventos: [], // { id, clienteId, evento, ocorridoEm, autorId } — linha do tempo (append-only) de cada cliente
+  permissaoClientesBanco: null, // resposta de fn_pode_ver_clientes() para o usuário logado (null = não consultado / modo local)
+  clienteAtivoId: null, // abre a ficha do cliente
+  formCliente: null, // null | { modo: 'novo'|'editar', tipo: 'prospect'|'cliente', id?, rascunho? }
+  gerenciarEtiquetasClienteAberto: false,
+  filtroClientes: { busca: "", tipo: "", carteiraId: "", responsavelId: "", etiquetaId: "" },
+  audienciasCliente: { clienteId: null, lista: [], carregando: false }, // audiências da ficha aberta (buscadas à parte: a tela inicial só carrega a pauta do dia)
 
   permissoesSetor: JSON.parse(JSON.stringify(PERMISSOES_SETOR_SEED)),
   gestoresSetor: JSON.parse(JSON.stringify(GESTORES_SETOR_SEED)),

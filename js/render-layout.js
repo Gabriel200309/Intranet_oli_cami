@@ -20,7 +20,7 @@ function renderSidebar() {
       `;}).join('')}
       <div style="height:1px; background:var(--border); margin:10px 16px;"></div>
       ${!state.collapsed ? `<div style="padding:0 16px 6px; font-size:10.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--text-3);">Ferramentas</div>` : ''}
-      ${NAV_EXTRA.filter(n => n.view !== 'eficiencia' || podeVerPainelEficiencia()).map(n => `
+      ${NAV_EXTRA.filter(n => (n.view !== 'eficiencia' || podeVerPainelEficiencia()) && (n.view !== 'clientes' || podeAcessarTelaClientes())).map(n => `
         <button class="nav-item ${state.activeNav===n.label?'active':''}" onclick="setActiveNav('${n.label}')">
           ${icon(n.icon)} ${state.collapsed ? '' : esc(n.label)}
           ${(!state.collapsed && n.view==='sinalizacoes' && state.sinalizacoes.filter(s=>s.status==='aberta').length) ? `<span style="margin-left:auto; background:var(--danger); color:#fff; font-size:10px; font-weight:800; border-radius:100px; padding:1px 7px;">${state.sinalizacoes.filter(s=>s.status==='aberta').length}</span>` : ''}
@@ -36,6 +36,7 @@ function setActiveNav(label) {
   if (extra) {
     state.activeNav = label;
     state.currentView = extra.view;
+    if (extra.view === 'clientes') { state.clienteAtivoId = null; state.formCliente = null; } // o menu sempre abre a lista, não a última ficha
     renderSidebar();
     renderContentView();
     return;
@@ -68,7 +69,7 @@ function renderHeader() {
     <div class="search-wrap">
       <div class="search-box">
         <i class="fa-solid fa-magnifying-glass"></i>
-        <input id="searchInput" placeholder="Buscar arquivos, pessoas, cursos, avisos..." value="${esc(state.query)}" oninput="onSearchInput(this.value)">
+        <input id="searchInput" placeholder="Buscar sistemas, clientes, CPF/CNPJ..." value="${esc(state.query)}" oninput="onSearchInput(this.value)">
       </div>
       <div id="searchResults"></div>
     </div>
@@ -115,7 +116,7 @@ function renderNotifDropdown() {
         <div class="notif-item" style="display:flex; gap:10px; align-items:flex-start; background:${n.lida?'transparent':'var(--surface-2)'}; cursor:pointer;" onclick="marcarNotificacaoLida('${n.id}')">
           <div class="avatar" style="width:28px; height:28px; font-size:10px; flex-shrink:0;">${remetente?esc(initials(remetente.nome)):'?'}</div>
           <div style="flex:1; min-width:0;">
-            <div style="font-weight:700; line-height:1.35;">${textoNotificacao(n)}</div>
+            <div style="font-weight:700; line-height:1.35;">${esc(textoNotificacao(n))}</div>
             <div style="color:var(--text-3); font-size:11px; margin-top:2px;">${tempoRelativo(n.data)}${!n.lida?' · <span style="color:var(--brass); font-weight:700;">nova</span>':''}</div>
           </div>
         </div>
@@ -134,9 +135,17 @@ function renderSearchResults() {
   // Módulos sem permissão nem aparecem na busca — evita expor a existência
   // de sistemas de outro setor a quem não deveria ter acesso a eles.
   const results = state.modules.filter(m => m.name.toLowerCase().includes(q) && moduleAccessCheck(m).allowed);
-  el.innerHTML = results.length ? `
+  // Clientes: por nome, CPF/CNPJ ou telefone — abre direto a ficha. Só entra
+  // quem o usuário pode ver (mesma regra da tela de Clientes).
+  const qNome = normalizarNomeCliente(q), qDigitos = somenteDigitos(q);
+  const clientes = clientesVisiveis().filter(c =>
+    normalizarNomeCliente(c.nome).includes(qNome) ||
+    (qDigitos.length >= 3 && (somenteDigitos(c.documento).includes(qDigitos) || somenteDigitos(c.telefone).includes(qDigitos)))
+  ).slice(0, 6);
+  el.innerHTML = (results.length || clientes.length) ? `
     <div class="search-results">
       ${results.map(m => `<div class="search-result-item" onclick="openModuleModal(${m.id}); clearSearch();">${esc(m.name)}</div>`).join('')}
+      ${clientes.map(c => `<div class="search-result-item" onclick="abrirCliente(${jsArg(c.id)}); clearSearch();"><i class="fa-solid fa-address-book" style="color:var(--text-3); margin-right:6px;"></i>${esc(c.nome)} <span style="color:var(--text-3); font-size:11px;">— ${CLIENTE_TIPO_INFO[c.tipo] ? CLIENTE_TIPO_INFO[c.tipo].label : ''}</span></div>`).join('')}
     </div>` : '';
 }
 function clearSearch() { state.query = ''; document.getElementById('searchInput').value=''; renderSearchResults(); }

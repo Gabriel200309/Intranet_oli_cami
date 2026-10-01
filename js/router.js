@@ -92,7 +92,7 @@ function renderNotificacoesView() {
           <div style="display:flex; align-items:center; gap:12px; flex:1;">
             ${remetente ? `<div class="avatar" style="width:38px; height:38px; flex-shrink:0; cursor:pointer;" onclick="abrirPerfilFuncionario('${remetente.id}')">${esc(initials(remetente.nome))}</div>` : `<div class="avatar" style="width:38px; height:38px; flex-shrink:0;"><i class="fa-solid fa-bell"></i></div>`}
             <div style="flex:1; min-width:0;">
-              <div style="font-size:13.5px; font-weight:700;">${textoNotificacao(n)}</div>
+              <div style="font-size:13.5px; font-weight:700;">${esc(textoNotificacao(n))}</div>
               <div class="mono" style="font-size:10.5px; color:var(--text-3); margin-top:4px;">
                 ${dataObj.toLocaleDateString('pt-BR')} às ${dataObj.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} · ${tempoRelativo(n.data)}
                 ${remetente ? ` · <span style="color:var(--brass); cursor:pointer; font-weight:700;" onclick="abrirPerfilFuncionario('${remetente.id}')">Ver perfil de ${esc(remetente.nome.split(' ')[0])}</span>` : ''}
@@ -116,8 +116,18 @@ function renderNotificacoesView() {
       `).join('')}
     </div>
   `;
-  // abrir a central marca as notificações como lidas
-  if (eramNaoLidas.size > 0) { todas.forEach(n => n.lida = true); renderHeader(); }
+  // abrir a central marca as notificações como lidas — também no banco
+  // (antes só mudava na tela e elas voltavam como "novas" ao recarregar).
+  // Na simulação "Visualizando como" do administrador não grava nada: as
+  // notificações são de outra pessoa.
+  if (eramNaoLidas.size > 0) {
+    todas.forEach(n => n.lida = true);
+    renderHeader();
+    if (supabaseClient && !getViewingEmployee()) {
+      supabaseClient.from('notificacoes').update({ lida: true }).in('id', [...eramNaoLidas])
+        .then(({ error }) => { if (error) console.error('Erro ao marcar notificações como lidas:', error.message); });
+    }
+  }
 }
 
 function renderCursosCatalogo() {
@@ -466,6 +476,7 @@ function renderContentView() {
   else if (v === "sinalizacoes") renderSinalizacoesView();
   else if (v === "eficiencia") renderEficienciaView();
   else if (v === "computadores") renderComputadoresView();
+  else if (v === "clientes") renderClientesView();
   else if (v === "reportarErro") renderReportarErroView();
   else if (v === "manual") renderManualView();
   else if (typeof v === "string" && v.indexOf("nav_") === 0) renderNavSectionView(v);

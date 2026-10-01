@@ -93,7 +93,23 @@ async function enviarRelatoParaIASupabase(registro) {
       : (data.aviso || 'Relato salvo, mas a análise automática falhou.'));
   } catch (err) {
     registro.iaStatus = 'offline';
-    showToast('Não foi possível conectar à Central de Manutenção IA (a Edge Function "analisar-erro-ia" pode não estar publicada ainda). O relato ficou salvo só nesta sessão.');
+    // A Edge Function é quem grava o relato no banco. Se ela não respondeu
+    // (não publicada, fora do ar), grava direto em bug_reports — a RLS deixa
+    // cada um registrar o próprio relato — para ele nunca se perder; só a
+    // análise automática fica pendente.
+    const { data: salvo, error: erroInsert } = await supabaseClient.from('bug_reports').insert({
+      funcionario_id: state.currentUser ? state.currentUser.id : null,
+      nome_usuario: payload.nomeUsuario, setor: payload.setor, sistema_modulo: payload.sistemaModulo || null,
+      titulo: payload.titulo, descricao: payload.descricao, prioridade: payload.prioridade || null,
+      data_hora: payload.dataHora, url_pagina: payload.urlPagina,
+      console_logs: payload.consoleLogs, js_errors: payload.jsErrors, stack_trace: payload.stackTrace || null, anexos: payload.anexos,
+    }).select('id').single();
+    if (!erroInsert && salvo) {
+      registro.iaRelatoId = salvo.id;
+      showToast('Relato salvo! A análise automática por IA está indisponível no momento — o relato fica registrado para o administrador.');
+    } else {
+      showToast('Não foi possível salvar o relato no banco (' + (erroInsert ? erroInsert.message : 'sem resposta') + '). Ele ficou salvo só nesta sessão — use "Enviar pelo Gmail/Outlook" para não perdê-lo.');
+    }
   }
   if (state.currentView === 'reportarErro') renderReportarErroView();
 }

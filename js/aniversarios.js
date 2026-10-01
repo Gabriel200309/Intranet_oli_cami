@@ -64,7 +64,11 @@ async function enviarParabens(aniversarianteId, origem) {
     }
     state.parabens.push({ id: data.id, aniversarianteId: data.aniversariante_id, remetenteId: data.remetente_id, data: data.enviado_em, origem: data.origem });
   }
-  showToast(`🎉 Parabéns enviados para ${destinatario ? destinatario.nome.split(' ')[0] : 'colaborador'}!`);
+  // o cadastro de funcionários só traz quem o usuário pode ver (RLS): um
+  // aniversariante de outro setor ainda tem o nome na lista de aniversariantes
+  const aniv = state.aniversariantes.find(a => a.funcionarioId === aniversarianteId);
+  const nomeDestino = destinatario ? destinatario.nome : (aniv ? aniv.nome : '') || (state.funcionarioMes.funcionarioId === aniversarianteId ? state.funcionarioMes.nome : '');
+  showToast(`🎉 Parabéns enviados para ${nomeDestino ? nomeDestino.split(' ')[0] : 'colaborador'}!`);
   renderAniversariantes();
   renderFuncionarioMes();
   renderHeader();

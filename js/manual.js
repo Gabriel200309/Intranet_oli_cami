@@ -121,7 +121,7 @@ function manualHTML() {
       <div id="manualNavGroups">
         ${manualNavGroup('Comece por aqui', [['comece','Como entrar e como o menu funciona'],['perfis','Níveis e restrições de acesso']])}
         ${manualNavGroup('Painel inicial', [['inicio','01 · Painel inicial (dashboard)'],['aniversariantes','02 · Aniversariantes e Funcionário do mês']])}
-        ${manualNavGroup('Dia a dia', [['cursos','03 · Cursos e Oficinas'],['metas','04 · Metas'],['chat','05 · Chat interno'],['calculadora','06 · Calculadora'],['notificacoes','07 · Notificações'],['sinalizacoes','08 · Sinalizações de Colaboradores'],['reportarerro','09 · Reportar Erro']])}
+        ${manualNavGroup('Dia a dia', [['cursos','03 · Cursos e Oficinas'],['metas','04 · Metas'],['chat','05 · Chat interno'],['calculadora','06 · Calculadora'],['notificacoes','07 · Notificações'],['sinalizacoes','08 · Sinalizações de Colaboradores'],['reportarerro','09 · Reportar Erro'],['clientes','10 · Clientes e Prospects']])}
         ${manualNavGroup('Administração', [['admin-acessorapido','10 · Acesso rápido'],['admin-setores','11 · Setores'],['admin-funcionarios','12 · Funcionários'],['admin-audiencias','13 · Audiências'],['admin-avisos','14 · Avisos'],['admin-metas','15 · Gestão de Metas'],['admin-funcionariomes','16 · Funcionário do mês'],['admin-aniversariantes','17 · Aniversariantes'],['admin-links','18 · Links e Ferramentas'],['admin-classificacoes','19 · Classificações'],['admin-permissoes','20 · Permissões de acesso'],['admin-gruposchat','21 · Grupos de chat'],['admin-cursos','22 · Cursos (cadastro)'],['admin-parabens','23 · Relatório de Parabéns'],['admin-manutencaoia','24 · Central de Manutenção IA'],['admin-supabase','25 · Conexão Supabase']])}
         ${manualNavGroup('Referência', [['glossario','Glossário'],['duvidas','Perguntas frequentes']])}
       </div>
@@ -147,7 +147,7 @@ function manualHTML() {
           <li>Na tela de login, escolha o tipo de acesso (<b>Sou usuário</b> ou <b>Sou administrador</b>), informe seu <b>e-mail corporativo</b> e a <b>senha</b>, e entre.</li>
           <li>Colaborador novo, sem conta ainda? O administrador cria o acesso em <a href="#admin-funcionarios">Administração → Funcionários</a> — sem isso, mesmo com o e-mail certo, o login é recusado.</li>
           <li>Esqueceu a senha? Use <b>Esqueci minha senha</b> na tela de login: um código de 6 dígitos é enviado por e-mail, válido por 10 minutos, e substitui a senha antiga.</li>
-          <li>Depois de entrar, a barra lateral mostra a navegação por setor (Início, Acordos, Jurídico, RH, Financeiro, Arquivos, Cursos, Instruções) e, abaixo, o grupo <b>Ferramentas</b> (Calculadora, Chat, Metas, Notificações, Sinalizações, Reportar Erro e este Manual).</li>
+          <li>Depois de entrar, a barra lateral mostra a navegação por setor (Início, Acordos, Jurídico, RH, Financeiro, Arquivos, Cursos, Instruções) e, abaixo, o grupo <b>Ferramentas</b> (Clientes, Calculadora, Chat, Metas, Notificações, Sinalizações, Reportar Erro e este Manual).</li>
           <li>Para sair, clique no seu avatar no canto superior direito do cabeçalho.</li>
         </ol>
         <div class="manual-callout tip"><span class="icon">i</span><p>O sino no cabeçalho mostra notificações em tempo real (parabéns recebidos, por exemplo) — não precisa recarregar a página.</p></div>
@@ -271,6 +271,34 @@ function manualHTML() {
         </ol>
       </section>
 
+      <section class="manual-module" id="clientes">
+        <div class="manual-modulehead">
+          <p class="eyebrow">10 · Dia a dia</p><h3>Clientes e Prospects</h3>
+          <div class="manual-accessrow"><span class="label">Quem acessa:</span><span class="manual-badge">setores com a permissão "Ver e editar clientes"</span><span class="manual-badge everyone">responsável, só os próprios clientes</span></div>
+          <p class="lede">Cadastro único de clientes e prospects, com a ficha do cliente reunindo tudo o que o portal sabe sobre ele em uma tela só.</p>
+        </div>
+        <ol class="manual-steps">
+          <li>Abra <span class="manual-path">Clientes</span> no grupo Ferramentas. Use <b>Novo prospect</b> para um contato ainda em negociação (interesse, próximo contato) e <b>Novo cliente</b> para contrato fechado (CPF/CNPJ, endereço).</li>
+          <li>Preencha o responsável, a carteira, a origem e as etiquetas. Os links do <b>AdvBox</b>, <b>ChatGuru</b>, <b>CRM comercial</b> e da <b>pasta de documentos</b> viram botões na ficha, para abrir cada sistema já no cliente certo.</li>
+          <li>Clique em um nome para abrir a <b>ficha do cliente</b>: dados e contatos (com atalho para o WhatsApp), atendimentos, audiências, indicadores (tempo médio de resposta, avaliação média) e o histórico do cadastro.</li>
+          <li>Quando o prospect fechar contrato, use <b>Converter em cliente</b> e complete o cadastro em <b>Editar</b>.</li>
+        </ol>
+        <div class="manual-fieldtable-wrap">
+          <table class="manual-fieldtable">
+            <thead><tr><th>Recurso</th><th>Como funciona</th></tr></thead>
+            <tbody>
+              <tr><td>Busca</td><td>Por nome, CPF/CNPJ, telefone ou e-mail, na tela de Clientes e também na busca do cabeçalho.</td></tr>
+              <tr><td>Filtros</td><td>Tipo (cliente/prospect), carteira, responsável e etiqueta. <b>Exportar</b> gera um arquivo que abre no Excel com a lista filtrada.</td></tr>
+              <tr><td>Etiquetas</td><td>Coloridas, criadas por quem tem acesso a Clientes. Só o administrador exclui.</td></tr>
+              <tr><td>CPF/CNPJ</td><td>Opcional para prospect. Os dígitos são conferidos e o mesmo documento não pode ser cadastrado duas vezes.</td></tr>
+              <tr><td>Histórico</td><td>Cadastro, conversão, troca de responsável ou carteira e etiquetas são registrados automaticamente, com data e autor. Ninguém edita o histórico.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="manual-callout tip"><span class="icon">i</span><p>Atendimentos e audiências continuam com o campo "Cliente". Escolha o nome na lista que aparece ao digitar para ligar o registro à ficha. Registros antigos com o mesmo nome aparecem na ficha com o botão <b>Vincular</b> (ou <b>Vincular todos</b>).</p></div>
+        <div class="manual-callout atencao"><span class="icon">!</span><p>Só o administrador exclui um cliente. Os atendimentos e audiências dele não são apagados, apenas perdem o vínculo com o cadastro.</p></div>
+      </section>
+
       <h2 class="manual-grouptitle">Administração</h2>
       <p class="manual-grouplede">Visível só para quem tem nível <b>Administrador</b> — um botão extra aparece no cabeçalho para abrir o painel, com uma aba para cada área.</p>
 
@@ -341,7 +369,7 @@ function manualHTML() {
 
       <section class="manual-module" id="admin-permissoes">
         <div class="manual-modulehead"><p class="eyebrow">20 · Administração</p><h3>Permissões de acesso</h3><div class="manual-accessrow"><span class="manual-badge">Administrador</span></div></div>
-        <p>Duas tabelas: <b>acesso cruzado entre setores</b> (libera um setor ver o painel de outro, a meta geral, sinalizações de todos os setores, ou o quadro completo de funcionários) e <b>gestores por setor</b> (quem enxerga todas as metas do setor que administra). Use o seletor "Visualizando..." no cabeçalho para simular a tela de um colaborador de outro setor e conferir o efeito.</p>
+        <p>Duas tabelas: <b>acesso cruzado entre setores</b> (libera um setor ver o painel de outro, a meta geral, sinalizações de todos os setores, o quadro completo de funcionários ou o cadastro de <a href="#clientes">Clientes</a>) e <b>gestores por setor</b> (quem enxerga todas as metas do setor que administra). Use o seletor "Visualizando..." no cabeçalho para simular a tela de um colaborador de outro setor e conferir o efeito.</p>
       </section>
 
       <section class="manual-module" id="admin-gruposchat">

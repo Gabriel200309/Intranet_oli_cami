@@ -490,7 +490,7 @@ function renderAdminAudiencias(c) {
       <div class="form-field"><label>Status</label><select id="au-status">
         ${['Confirmada','Cancelada','Remarcada'].map(s=>`<option ${a&&a.status===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
-      <div class="form-field"><label>Cliente</label><input id="au-cliente" value="${esc(a?a.cliente:'')}" placeholder="Nome do cliente"></div>
+      <div class="form-field"><label>Cliente</label><input id="au-cliente" list="dl-clientes-au" value="${esc(a?a.cliente:'')}" placeholder="Nome do cliente">${datalistClientesHTML('dl-clientes-au')}<span style="font-size:10.5px; color:var(--text-3);">Escolha um nome da lista para vincular a audiência à ficha do cliente.</span></div>
       <div class="form-field"><label>Advogado responsável</label><input id="au-advogado" value="${esc(a?a.advogado:'')}" placeholder="Ex: Dra. Camila Prado"></div>
     </div>
     <div style="display:flex; gap:8px;">
@@ -514,16 +514,22 @@ async function submitAudiencia() {
   if (!data.cliente.trim() || !data.hora.trim()) return;
   const ed = state.editing.audiencia;
   if (!supabaseClient) {
-    if (ed) { const i = state.audiencias.findIndex(x=>x.id===ed); state.audiencias[i] = { ...data, id: ed }; showToast('Audiência atualizada!'); }
-    else { state.audiencias.push({ ...data, id: uid('a') }); showToast('Audiência adicionada à pauta!'); }
+    const clienteId = clienteIdPorNome(data.cliente);
+    if (ed) { const i = state.audiencias.findIndex(x=>x.id===ed); state.audiencias[i] = { ...state.audiencias[i], ...data, clienteId, id: ed }; showToast('Audiência atualizada!'); }
+    else { state.audiencias.push({ ...data, clienteId, id: uid('a') }); showToast('Audiência adicionada à pauta!'); }
     state.editing.audiencia = null;
     renderAdminTabContent(); renderAudiencias();
     return;
   }
-  const payload = { hora: data.hora, cliente: data.cliente, advogado: data.advogado, status: data.status };
-  const { error } = ed
-    ? await supabaseClient.from('audiencias').update(payload).eq('id', ed)
-    : await supabaseClient.from('audiencias').insert(payload);
+  // Vínculo com o cadastro de clientes (migração 0028): só quando o nome
+  // digitado bate com exatamente um cliente. Sem a migração aplicada, salva
+  // normalmente sem o vínculo — nunca trava a pauta.
+  const payload = { hora: data.hora, cliente: data.cliente, advogado: data.advogado, status: data.status, cliente_id: clienteIdPorNome(data.cliente) };
+  const salvar = () => ed
+    ? supabaseClient.from('audiencias').update(payload).eq('id', ed)
+    : supabaseClient.from('audiencias').insert(payload);
+  let { error } = await salvar();
+  if (error && colunaAusente(error, 'cliente_id')) { delete payload.cliente_id; ({ error } = await salvar()); }
   if (error) { showToast('Não foi possível salvar: ' + error.message); return; }
   showToast(ed ? 'Audiência atualizada!' : 'Audiência adicionada à pauta!');
   state.editing.audiencia = null;
@@ -1192,6 +1198,7 @@ const PERMISSAO_SETOR_COLUNA = {
   acessoAcordos: 'acesso_acordos', acessoJuridico: 'acesso_juridico', acessoRH: 'acesso_rh',
   acessoFinanceiro: 'acesso_financeiro', verMetasGeral: 'ver_metas_geral',
   verSinalizacoesTodas: 'ver_sinalizacoes_todas', verFuncionariosTodos: 'ver_funcionarios_todos',
+  verClientes: 'ver_clientes',
 };
 async function togglePermissaoSetor(setor, key, checked) {
   if (!state.permissoesSetor[setor]) state.permissoesSetor[setor] = {};
@@ -1199,7 +1206,9 @@ async function togglePermissaoSetor(setor, key, checked) {
   showToast('Permissões atualizadas!');
   if (supabaseClient) {
     const coluna = PERMISSAO_SETOR_COLUNA[key];
-    const { error } = await supabaseClient.from('permissoes_setor').update({ [coluna]: checked }).eq('setor', setor);
+    // upsert: um setor criado antes da migração 0029 pode ainda não ter a
+    // linha de permissões — um update simples afetava 0 linhas sem avisar.
+    const { error } = await supabaseClient.from('permissoes_setor').upsert({ setor, [coluna]: checked }, { onConflict: 'setor' });
     if (error) showToast('Não foi possível salvar no banco: ' + error.message);
   }
 }
